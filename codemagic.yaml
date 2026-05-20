@@ -1,6 +1,6 @@
 workflows:
   android-native-debug:
-    name: Vigia Industrial — Android Nativo (Debug APK)
+    name: Vigia Industrial — Debug APK
     max_build_duration: 60
     instance_type: mac_mini_m1
 
@@ -8,10 +8,8 @@ workflows:
       java: 17
 
     scripts:
-      - name: Set execute permission on Gradle wrapper
-        script: |
-          cd android 2>/dev/null || true
-          chmod +x gradlew
+      - name: Set permissions on Gradle wrapper
+        script: chmod +x gradlew
 
       - name: Build Debug APK
         script: |
@@ -22,7 +20,6 @@ workflows:
 
     artifacts:
       - app/build/outputs/apk/debug/*.apk
-      - app/build/outputs/logs/**
 
     publishing:
       email:
@@ -33,28 +30,26 @@ workflows:
           failure: true
 
   android-native-release:
-    name: Vigia Industrial — Android Nativo (Release AAB)
+    name: Vigia Industrial — Release AAB
     max_build_duration: 60
     instance_type: mac_mini_m1
 
     environment:
       java: 17
-      android_signing:
-        - vigia_keystore   # Nombre del keystore en Codemagic → App settings → Code signing
 
     scripts:
-      - name: Set permissions
+      - name: Set permissions on Gradle wrapper
         script: chmod +x gradlew
 
       - name: Build Release AAB
         script: |
           ./gradlew bundleRelease \
             -Dorg.gradle.jvmargs="-Xmx2g" \
-            --no-daemon
+            --no-daemon \
+            --stacktrace
 
     artifacts:
       - app/build/outputs/bundle/release/*.aab
-      - app/build/outputs/apk/release/*.apk
 
     publishing:
       email:
