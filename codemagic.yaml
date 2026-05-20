@@ -11,6 +11,9 @@ workflows:
       - name: Set permissions on Gradle wrapper
         script: chmod +x gradlew
 
+      - name: Remove Windows junk files
+        script: find . -name "desktop.ini" -delete && find . -name "Thumbs.db" -delete && find . -name ".DS_Store" -delete
+
       - name: Build Debug APK
         script: |
           ./gradlew assembleDebug \
@@ -40,6 +43,9 @@ workflows:
     scripts:
       - name: Set permissions on Gradle wrapper
         script: chmod +x gradlew
+
+      - name: Remove Windows junk files
+        script: find . -name "desktop.ini" -delete && find . -name "Thumbs.db" -delete && find . -name ".DS_Store" -delete
 
       - name: Build Release AAB
         script: |
