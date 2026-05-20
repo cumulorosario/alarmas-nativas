@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.VigiaIndustrial" parent="android:Theme.Material.NoTitleBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/black</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="Theme.VigiaIndustrial.FullScreen" parent="android:Theme.Material.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowShowWhenLocked">true</item>
+        <item name="android:windowDismissKeyguard">true</item>
+        <item name="android:windowTurnScreenOn">true</item>
+        <item name="android:keepScreenOn">true</item>
+    </style>
+
+    <!-- Splash screen theme -->
+    <style name="Theme.VigiaIndustrial.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@android:color/black</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_notification</item>
+        <item name="postSplashScreenTheme">@style/Theme.VigiaIndustrial</item>
+    </style>
+</resources>
