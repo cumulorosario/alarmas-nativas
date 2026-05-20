@@ -109,13 +109,13 @@ class ThingsBoardApi(
 
     suspend fun acknowledgeAlarm(alarmId: String) {
         try { post("/api/alarm/$alarmId/ack") } catch (e: ApiException) {
-            if (!e.message.contains("already", ignoreCase = true)) throw e
+            if (e.message?.contains("already", ignoreCase = true) != true) throw e
         }
     }
 
     suspend fun clearAlarm(alarmId: String) {
         try { post("/api/alarm/$alarmId/clear") } catch (e: ApiException) {
-            if (!e.message.contains("already", ignoreCase = true)) throw e
+            if (e.message?.contains("already", ignoreCase = true) != true) throw e
         }
     }
 
