@@ -11,8 +11,13 @@ workflows:
       - name: Set permissions on Gradle wrapper
         script: chmod +x gradlew
 
-      - name: Remove Windows junk files
-        script: find . -name "desktop.ini" -delete && find . -name "Thumbs.db" -delete && find . -name ".DS_Store" -delete
+      - name: Remove junk files
+        script: |
+          find . -name "desktop.ini" -delete
+          find . -name "Thumbs.db" -delete
+          find . -name ".DS_Store" -delete
+          rm -rf app/src/main/res/values-v27
+          echo "Cleanup done"
 
       - name: Build Debug APK
         script: |
@@ -44,8 +49,13 @@ workflows:
       - name: Set permissions on Gradle wrapper
         script: chmod +x gradlew
 
-      - name: Remove Windows junk files
-        script: find . -name "desktop.ini" -delete && find . -name "Thumbs.db" -delete && find . -name ".DS_Store" -delete
+      - name: Remove junk files
+        script: |
+          find . -name "desktop.ini" -delete
+          find . -name "Thumbs.db" -delete
+          find . -name ".DS_Store" -delete
+          rm -rf app/src/main/res/values-v27
+          echo "Cleanup done"
 
       - name: Build Release AAB
         script: |
