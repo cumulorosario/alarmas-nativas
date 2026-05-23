@@ -18,8 +18,12 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- Battery optimization exclusion request -->
+    <!-- Battery optimization exclusion -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Exact alarm for service restart after task removed -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <!-- Show over lock screen -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
@@ -65,14 +69,14 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.VigiaIndustrial.FullScreen" />
 
-        <!-- Background polling service -->
+        <!-- Background polling foreground service -->
         <service
             android:name=".service.AlarmPollingService"
             android:exported="false"
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
 
-        <!-- Boot receiver - start service when device boots -->
+        <!-- Boot receiver -->
         <receiver
             android:name=".service.BootReceiver"
             android:exported="true"
@@ -85,7 +89,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- Alarm notification receiver for actions (ack/clear) -->
+        <!-- Alarm action receiver (buttons in notification) -->
         <receiver
             android:name=".service.AlarmActionReceiver"
             android:exported="false" />

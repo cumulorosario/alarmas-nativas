@@ -2,12 +2,10 @@ package com.cumulo.vigia
 
 import android.app.Application
 import android.content.Intent
-import android.content.IntentFilter
 import android.os.Build
 import android.util.Log
 import com.cumulo.vigia.service.AlarmNotificationManager
 import com.cumulo.vigia.service.AlarmPollingService
-import com.cumulo.vigia.service.BootReceiver
 
 class VigiaApplication : Application() {
 
@@ -16,15 +14,10 @@ class VigiaApplication : Application() {
         Log.i("VigiaApp", "Application starting")
         AlarmNotificationManager.createChannels(this)
 
-        // Register service restart receiver
-        val restartReceiver = BootReceiver()
-        val filter = IntentFilter("com.cumulo.vigia.RESTART_SERVICE")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(restartReceiver, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(restartReceiver, filter)
-        }
+        // Programar WorkManager watchdog (sobrevive a matar la app)
+        AlarmPollingService.scheduleWorkManagerFallback(this)
 
+        // Arrancar el servicio de foreground
         startPollingService()
     }
 
@@ -37,7 +30,7 @@ class VigiaApplication : Application() {
                 startService(intent)
             }
         } catch (e: Exception) {
-            Log.w("VigiaApp", "Could not start service immediately: ${e.message}")
+            Log.w("VigiaApp", "Could not start service: ${e.message}")
         }
     }
 }

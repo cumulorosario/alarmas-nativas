@@ -14,20 +14,22 @@ class BootReceiver : BroadcastReceiver() {
         when (action) {
             Intent.ACTION_BOOT_COMPLETED,
             "android.intent.action.QUICKBOOT_POWERON",
-            "com.htc.intent.action.QUICKBOOT_POWERON",
-            "com.cumulo.vigia.RESTART_SERVICE" -> {
+            "com.htc.intent.action.QUICKBOOT_POWERON" -> {
+                Log.i("BootReceiver", "Boot completed — starting service + watchdog")
                 startService(context)
+                // Programar WorkManager watchdog para resiliencia
+                AlarmPollingService.scheduleWorkManagerFallback(context)
             }
         }
     }
 
     private fun startService(context: Context) {
-        val serviceIntent = Intent(context, AlarmPollingService::class.java)
         try {
+            val intent = Intent(context, AlarmPollingService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
+                context.startForegroundService(intent)
             } else {
-                context.startService(serviceIntent)
+                context.startService(intent)
             }
             Log.i("BootReceiver", "AlarmPollingService started")
         } catch (e: Exception) {
