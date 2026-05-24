@@ -9,6 +9,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import com.cumulo.vigia.util.ErrorTranslator
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -38,9 +39,9 @@ class ThingsBoardApi(
         val response = client.newCall(request).execute()
         val body = response.body?.string() ?: ""
         if (!response.isSuccessful) {
-            val msg = try { JSONObject(body).optString("message", "Error ${response.code}") }
+            val raw = try { JSONObject(body).optString("message", "Error ${response.code}") }
                       catch (e: Exception) { "Error ${response.code}" }
-            throw ApiException(msg, response.code)
+            throw ApiException(ErrorTranslator.translate(raw), response.code)
         }
         body
     }
@@ -52,9 +53,9 @@ class ThingsBoardApi(
         val response = client.newCall(request).execute()
         val responseBody = response.body?.string() ?: ""
         if (!response.isSuccessful) {
-            val msg = try { JSONObject(responseBody).optString("message", "Error ${response.code}") }
+            val raw = try { JSONObject(responseBody).optString("message", "Error ${response.code}") }
                       catch (e: Exception) { "Error ${response.code}" }
-            throw ApiException(msg, response.code)
+            throw ApiException(ErrorTranslator.translate(raw), response.code)
         }
         responseBody
     }
@@ -202,6 +203,6 @@ suspend fun ThingsBoardApi.refreshToken(refreshToken: String, baseUrl: String): 
         .build()
     val response = client.newCall(request).execute()
     val raw = response.body?.string() ?: ""
-    if (!response.isSuccessful) throw ApiException("Refresh failed: ${response.code}", response.code)
+    if (!response.isSuccessful) throw ApiException(ErrorTranslator.translate("Error al renovar sesión: ${response.code}"), response.code)
     return com.google.gson.Gson().fromJson(raw, AuthResponse::class.java)
 }

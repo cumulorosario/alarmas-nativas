@@ -4,6 +4,7 @@ import android.util.Log
 import com.cumulo.vigia.data.api.ApiException
 import com.cumulo.vigia.data.api.ThingsBoardApi
 import com.cumulo.vigia.data.api.refreshToken
+import com.cumulo.vigia.util.ErrorTranslator
 import com.cumulo.vigia.data.local.SessionStore
 import com.cumulo.vigia.model.*
 import kotlinx.coroutines.async
@@ -127,7 +128,7 @@ class VigiaRepository(private val sessionStore: SessionStore) {
             sessionStore.saveCredentials(username, password, rememberMe)
             Result.Success(Unit)
         } catch (e: Exception) {
-            Result.Error(e.message ?: "Error al iniciar sesión", e as? Exception)
+            Result.Error(ErrorTranslator.translate(e.message) ?: "Error al iniciar sesión", e as? Exception)
         }
     }
 
@@ -165,7 +166,7 @@ class VigiaRepository(private val sessionStore: SessionStore) {
             }
             Result.Success(allAlarms.sortedByDescending { it.createdTime })
         } catch (e: Exception) {
-            Result.Error(e.message ?: "Error al cargar alarmas", e as? Exception)
+            Result.Error(ErrorTranslator.translate(e.message) ?: "Error al cargar alarmas", e as? Exception)
         }
     }
 
@@ -174,7 +175,7 @@ class VigiaRepository(private val sessionStore: SessionStore) {
             withAutoRefresh { token, baseUrl -> api(baseUrl, token).acknowledgeAlarm(alarmId) }
             Result.Success(Unit)
         } catch (e: Exception) {
-            Result.Error(e.message ?: "Error al reconocer alarma", e as? Exception)
+            Result.Error(ErrorTranslator.translate(e.message) ?: "Error al reconocer alarma", e as? Exception)
         }
     }
 
@@ -187,7 +188,7 @@ class VigiaRepository(private val sessionStore: SessionStore) {
             }
             Result.Success(Unit)
         } catch (e: Exception) {
-            Result.Error(e.message ?: "Error al resolver alarma", e as? Exception)
+            Result.Error(ErrorTranslator.translate(e.message) ?: "Error al resolver alarma", e as? Exception)
         }
     }
 
@@ -211,7 +212,7 @@ class VigiaRepository(private val sessionStore: SessionStore) {
                 }
             }.let { Result.Success(it) }
         } catch (e: Exception) {
-            Result.Error(e.message ?: "Error al cargar dispositivos", e as? Exception)
+            Result.Error(ErrorTranslator.translate(e.message) ?: "Error al cargar dispositivos", e as? Exception)
         }
     }
 }

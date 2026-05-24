@@ -12,6 +12,7 @@ import com.cumulo.vigia.model.Alarm
 import com.cumulo.vigia.model.Device
 import com.cumulo.vigia.model.Result
 import com.cumulo.vigia.service.AlarmNotificationManager
+import com.cumulo.vigia.util.ErrorTranslator
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -92,7 +93,7 @@ class VigiaViewModel(application: Application) : AndroidViewModel(application) {
             _loginState.update { it.copy(isLoading = true, error = null) }
             when (val r = repository.login(state.username, state.password, state.rememberMe)) {
                 is Result.Success -> { _isAuthenticated.value = true; loadData() }
-                is Result.Error   -> _loginState.update { it.copy(isLoading = false, error = r.message) }
+                is Result.Error   -> _loginState.update { it.copy(isLoading = false, error = ErrorTranslator.translate(r.message)) }
                 else -> {}
             }
             _loginState.update { it.copy(isLoading = false) }
@@ -140,7 +141,7 @@ class VigiaViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                     is Result.Error -> _dashboardState.update {
-                        it.copy(isLoading = false, isRefreshing = false, error = r.message)
+                        it.copy(isLoading = false, isRefreshing = false, error = ErrorTranslator.translate(r.message))
                     }
                     else -> {}
                 }
