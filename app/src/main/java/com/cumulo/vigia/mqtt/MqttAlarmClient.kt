@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import org.eclipse.paho.android.service.MqttAndroidClient
 import org.eclipse.paho.client.mqttv3.IMqttActionListener
+import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
 import org.eclipse.paho.client.mqttv3.IMqttToken
 import org.eclipse.paho.client.mqttv3.MqttCallbackExtended
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions
@@ -36,6 +37,7 @@ class MqttAlarmClient(
         }
 
         client.setCallback(object : MqttCallbackExtended {
+
             override fun connectComplete(reconnect: Boolean, serverURI: String?) {
                 subscribe()
             }
@@ -49,10 +51,12 @@ class MqttAlarmClient(
                 onAlarm(payload)
             }
 
-            override fun deliveryComplete(token: IMqttToken?) = Unit
+            override fun deliveryComplete(token: IMqttDeliveryToken?) {
+            }
         })
 
         client.connect(options, null, object : IMqttActionListener {
+
             override fun onSuccess(asyncActionToken: IMqttToken?) {
                 subscribe()
             }
