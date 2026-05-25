@@ -1,6 +1,7 @@
 package com.cumulo.vigia.data.api
 
 import com.cumulo.vigia.model.*
+import com.cumulo.vigia.util.ErrorTranslator
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
@@ -9,7 +10,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import com.cumulo.vigia.util.ErrorTranslator
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -41,6 +41,8 @@ class ThingsBoardApi(
         if (!response.isSuccessful) {
             val raw = try { JSONObject(body).optString("message", "Error ${response.code}") }
                       catch (e: Exception) { "Error ${response.code}" }
+            // Siempre lanzar ApiException con el código HTTP correcto
+            // NUNCA swallow 401 — debe propagarse para que withAutoRefresh lo capture
             throw ApiException(ErrorTranslator.translate(raw), response.code)
         }
         body
@@ -71,40 +73,57 @@ class ThingsBoardApi(
         return gson.fromJson(raw, UserInfo::class.java)
     }
 
-    suspend fun getAlarms(pageSize: Int = 50, status: String? = null): List<Alarm> {
-        val query = if (status != null) "&status=$status" else ""
+    /**
+     * Endpoint principal de alarmas.
+     * Propaga 401 siempre — nunca retorna vacío por error de auth.
+     * Solo retorna vacío para 403/404 (sin permisos o no existe).
+     */
+    suspend fun getAlarms(pageSize: Int = 100): List<Alarm> {
         return try {
-            val raw = get("/api/alarms?pageSize=$pageSize&page=0$query")
+            val raw = get("/api/alarms?pageSize=$pageSize&page=0")
             parseAlarmList(raw)
         } catch (e: ApiException) {
-            if (e.code == 403 || e.code == 404) emptyList() else throw e
+            when (e.code) {
+                401 -> throw e          // propagar: token expirado
+                403, 404 -> emptyList() // sin permisos o no existe — ok, vacío
+                else -> throw e
+            }
         }
     }
 
-    suspend fun getAlarmsByTenant(tenantId: String, pageSize: Int = 50): List<Alarm> {
+    suspend fun getAlarmsByTenant(tenantId: String, pageSize: Int = 100): List<Alarm> {
         return try {
             val raw = get("/api/alarm/TENANT/$tenantId?pageSize=$pageSize&page=0")
             parseAlarmList(raw)
         } catch (e: ApiException) {
-            emptyList()
+            when (e.code) {
+                401 -> throw e          // propagar siempre
+                else -> emptyList()
+            }
         }
     }
 
-    suspend fun getAlarmsByCustomer(customerId: String, pageSize: Int = 50): List<Alarm> {
+    suspend fun getAlarmsByCustomer(customerId: String, pageSize: Int = 100): List<Alarm> {
         return try {
             val raw = get("/api/alarm/CUSTOMER/$customerId?pageSize=$pageSize&page=0")
             parseAlarmList(raw)
         } catch (e: ApiException) {
-            emptyList()
+            when (e.code) {
+                401 -> throw e
+                else -> emptyList()
+            }
         }
     }
 
     suspend fun getAlarmsByDevice(deviceId: String): List<Alarm> {
         return try {
-            val raw = get("/api/alarm/DEVICE/$deviceId?pageSize=10&page=0")
+            val raw = get("/api/alarm/DEVICE/$deviceId?pageSize=20&page=0")
             parseAlarmList(raw)
         } catch (e: ApiException) {
-            emptyList()
+            when (e.code) {
+                401 -> throw e
+                else -> emptyList()
+            }
         }
     }
 
@@ -125,7 +144,10 @@ class ThingsBoardApi(
             val raw = get("/api/tenant/devices?pageSize=$pageSize&page=0")
             parseDeviceList(raw)
         } catch (e: ApiException) {
-            emptyList()
+            when (e.code) {
+                401 -> throw e
+                else -> emptyList()
+            }
         }
     }
 
@@ -134,17 +156,23 @@ class ThingsBoardApi(
             val raw = get("/api/customer/$customerId/devices?pageSize=$pageSize&page=0")
             parseDeviceList(raw)
         } catch (e: ApiException) {
-            emptyList()
+            when (e.code) {
+                401 -> throw e
+                else -> emptyList()
+            }
         }
     }
 
     suspend fun getDeviceAttributes(deviceId: String): Boolean {
         return try {
             val raw = get("/api/plugins/telemetry/DEVICE/$deviceId/values/attributes")
-            val arr = gson.fromJson<List<Map<String, Any>>>(raw, object : TypeToken<List<Map<String, Any>>>() {}.type)
-            val activeAttr = arr.find { it["key"] == "active" }
-            val lastConnect = arr.find { it["key"] == "lastConnectTime" }?.get("value")?.toString()?.toLongOrNull() ?: 0L
-            val lastDisconnect = arr.find { it["key"] == "lastDisconnectTime" }?.get("value")?.toString()?.toLongOrNull() ?: 0L
+            val arr = gson.fromJson<List<Map<String, Any>>>(
+                raw, object : TypeToken<List<Map<String, Any>>>() {}.type)
+            val activeAttr    = arr.find { it["key"] == "active" }
+            val lastConnect   = arr.find { it["key"] == "lastConnectTime" }
+                ?.get("value")?.toString()?.toLongOrNull() ?: 0L
+            val lastDisconnect = arr.find { it["key"] == "lastDisconnectTime" }
+                ?.get("value")?.toString()?.toLongOrNull() ?: 0L
             val isActive = activeAttr?.get("value").toString() == "true"
             isActive && (lastConnect > lastDisconnect || lastDisconnect == 0L)
         } catch (e: Exception) {
@@ -157,15 +185,19 @@ class ThingsBoardApi(
         val arr = obj.optJSONArray("data") ?: return emptyList()
         val list = mutableListOf<Alarm>()
         for (i in 0 until arr.length()) {
-            val a = arr.getJSONObject(i)
-            list.add(Alarm(
-                id = AlarmId(a.getJSONObject("id").getString("id")),
-                createdTime = a.getLong("createdTime"),
-                type = a.optString("type", "UNKNOWN"),
-                severity = a.optString("severity", "INDETERMINATE"),
-                status = a.optString("status", "ACTIVE_UNACK"),
-                originatorName = a.optString("originatorName", "Desconocido")
-            ))
+            try {
+                val a = arr.getJSONObject(i)
+                list.add(Alarm(
+                    id             = AlarmId(a.getJSONObject("id").getString("id")),
+                    createdTime    = a.getLong("createdTime"),
+                    type           = a.optString("type", "UNKNOWN"),
+                    severity       = a.optString("severity", "INDETERMINATE"),
+                    status         = a.optString("status", "ACTIVE_UNACK"),
+                    originatorName = a.optString("originatorName", "Desconocido")
+                ))
+            } catch (e: Exception) {
+                // Ignorar entradas malformadas individualmente
+            }
         }
         return list.sortedByDescending { it.createdTime }
     }
@@ -175,13 +207,17 @@ class ThingsBoardApi(
         val arr = obj.optJSONArray("data") ?: return emptyList()
         val list = mutableListOf<Device>()
         for (i in 0 until arr.length()) {
-            val d = arr.getJSONObject(i)
-            val idObj = d.getJSONObject("id")
-            list.add(Device(
-                id = DeviceId(idObj.getString("id"), idObj.optString("entityType", "DEVICE")),
-                name = d.optString("name", "Dispositivo"),
-                type = d.optString("type", "default")
-            ))
+            try {
+                val d = arr.getJSONObject(i)
+                val idObj = d.getJSONObject("id")
+                list.add(Device(
+                    id   = DeviceId(idObj.getString("id"), idObj.optString("entityType", "DEVICE")),
+                    name = d.optString("name", "Dispositivo"),
+                    type = d.optString("type", "default")
+                ))
+            } catch (e: Exception) {
+                // Ignorar entradas malformadas individualmente
+            }
         }
         return list
     }
@@ -189,20 +225,25 @@ class ThingsBoardApi(
 
 class ApiException(message: String, val code: Int = 0) : Exception(message)
 
-// Extension: renovar token con refreshToken
 suspend fun ThingsBoardApi.refreshToken(refreshToken: String, baseUrl: String): AuthResponse {
-    val client = okhttp3.OkHttpClient.Builder()
-        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+    val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .build()
-    val JSON = "application/json; charset=utf-8".toMediaType()
-    val body = """{"refreshToken":"$refreshToken"}"""
-    val request = okhttp3.Request.Builder()
+    val JSON   = "application/json; charset=utf-8".toMediaType()
+    val body   = """{"refreshToken":"$refreshToken"}"""
+    val request = Request.Builder()
         .url(baseUrl.trimEnd('/') + "/api/auth/token")
         .post(body.toRequestBody(JSON))
         .header("Content-Type", "application/json")
         .build()
     val response = client.newCall(request).execute()
     val raw = response.body?.string() ?: ""
-    if (!response.isSuccessful) throw ApiException(ErrorTranslator.translate("Error al renovar sesión: ${response.code}"), response.code)
-    return com.google.gson.Gson().fromJson(raw, AuthResponse::class.java)
+    if (!response.isSuccessful) {
+        throw ApiException(
+            ErrorTranslator.translate("Error al renovar sesión: ${response.code}"),
+            response.code
+        )
+    }
+    return Gson().fromJson(raw, AuthResponse::class.java)
 }
