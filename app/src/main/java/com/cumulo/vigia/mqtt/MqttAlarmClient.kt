@@ -2,7 +2,7 @@ package com.cumulo.vigia.mqtt
 
 import android.content.Context
 import android.util.Log
-import org.eclipse.paho.android.service.MqttAndroidClient
+import org.eclipse.paho.client.mqttv3.MqttClient
 import org.eclipse.paho.client.mqttv3.IMqttActionListener
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
 import org.eclipse.paho.client.mqttv3.IMqttToken
@@ -24,7 +24,7 @@ class MqttAlarmClient(
         "tcp://$host:1883"
     }
 
-    private val client = MqttAndroidClient(context, serverUri, clientId)
+    private val client = MqttClient(serverUri, clientId, null)
 
     fun connect() {
         val options = MqttConnectOptions().apply {
