@@ -15,9 +15,11 @@ class BootReceiver : BroadcastReceiver() {
             Intent.ACTION_BOOT_COMPLETED,
             "android.intent.action.QUICKBOOT_POWERON",
             "com.htc.intent.action.QUICKBOOT_POWERON" -> {
-                Log.i("BootReceiver", "Boot completed — starting service + watchdog")
+                Log.i("BootReceiver", "Boot completado — iniciando servicio y programando polls")
                 startService(context)
-                // Programar WorkManager watchdog para resiliencia
+                // Programar el primer poll inmediato via AlarmManager
+                AlarmPollingService.scheduleNextPoll(context, 5_000L)
+                // WorkManager watchdog como respaldo
                 AlarmPollingService.scheduleWorkManagerFallback(context)
             }
         }
@@ -31,9 +33,8 @@ class BootReceiver : BroadcastReceiver() {
             } else {
                 context.startService(intent)
             }
-            Log.i("BootReceiver", "AlarmPollingService started")
         } catch (e: Exception) {
-            Log.e("BootReceiver", "Failed to start service: ${e.message}")
+            Log.e("BootReceiver", "Error iniciando servicio: ${e.message}")
         }
     }
 }

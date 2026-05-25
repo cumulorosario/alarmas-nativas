@@ -11,14 +11,18 @@ class VigiaApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.i("VigiaApp", "Application starting")
+        Log.i("VigiaApp", "Aplicación iniciando")
         AlarmNotificationManager.createChannels(this)
 
-        // Programar WorkManager watchdog (sobrevive a matar la app)
+        // WorkManager watchdog como red de seguridad
         AlarmPollingService.scheduleWorkManagerFallback(this)
 
-        // Arrancar el servicio de foreground
+        // Iniciar el servicio foreground
         startPollingService()
+
+        // Programar el primer poll via AlarmManager (inmune a Doze)
+        // El servicio programa el siguiente al terminar cada poll
+        AlarmPollingService.scheduleNextPoll(this, 2_000L)
     }
 
     private fun startPollingService() {
@@ -30,7 +34,7 @@ class VigiaApplication : Application() {
                 startService(intent)
             }
         } catch (e: Exception) {
-            Log.w("VigiaApp", "Could not start service: ${e.message}")
+            Log.w("VigiaApp", "No se pudo iniciar el servicio: ${e.message}")
         }
     }
 }
