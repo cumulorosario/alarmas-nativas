@@ -151,33 +151,18 @@ private suspend fun renewToken(session: SessionStore.Session): String? {
                 // IMPORTANTE: usar el token y session del parámetro, NO releer sessionStore aquí
                 // Esto garantiza consistencia si el token fue renovado en el reintento
                 val tbApi = api(baseUrl, token)
-                val result = mutableListOf<Alarm>()
+                // Restaurado a estrategia simple y compatible con customer users
+                // El merge multi-endpoint generaba listas vacías en algunos tenants.
 
-                // Estrategia 1: endpoint general (el más completo)
-                result.addAll(tbApi.getAlarms(100))
-
-                // Estrategia 2: por tenant (lanza 401 si el token es inválido)
-                if (session.tenantId.isNotEmpty()) {
-                    tbApi.getAlarmsByTenant(session.tenantId, 100).forEach { a ->
-                        if (result.none { it.id.id == a.id.id }) result.add(a)
+                val result = when {
+                    session.customerId.isNotEmpty() -> {
+                        tbApi.getAlarmsByCustomer(session.customerId, 100)
                     }
-                }
-
-                // Estrategia 3: por customer
-                if (session.customerId.isNotEmpty()) {
-                    tbApi.getAlarmsByCustomer(session.customerId, 100).forEach { a ->
-                        if (result.none { it.id.id == a.id.id }) result.add(a)
+                    session.tenantId.isNotEmpty() -> {
+                        tbApi.getAlarmsByTenant(session.tenantId, 100)
                     }
-                }
-
-                // Estrategia 4: por dispositivo (solo si hay pocas alarmas)
-                if (result.size < 5) {
-                    val devices = tbApi.getDevices(30)
-                    coroutineScope {
-                        devices.map { d -> async { tbApi.getAlarmsByDevice(d.id.id) } }
-                            .map { it.await() }
-                    }.flatten().forEach { a ->
-                        if (result.none { it.id.id == a.id.id }) result.add(a)
+                    else -> {
+                        tbApi.getAlarms(100)
                     }
                 }
 
