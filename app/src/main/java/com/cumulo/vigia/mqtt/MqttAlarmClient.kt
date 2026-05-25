@@ -2,11 +2,9 @@ package com.cumulo.vigia.mqtt
 
 import android.content.Context
 import android.util.Log
-import org.eclipse.paho.client.mqttv3.MqttClient
-import org.eclipse.paho.client.mqttv3.IMqttActionListener
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
-import org.eclipse.paho.client.mqttv3.IMqttToken
 import org.eclipse.paho.client.mqttv3.MqttCallbackExtended
+import org.eclipse.paho.client.mqttv3.MqttClient
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions
 import org.eclipse.paho.client.mqttv3.MqttMessage
 
@@ -18,15 +16,18 @@ class MqttAlarmClient(
     private val password: String,
     private val onAlarm: (String) -> Unit
 ) {
-    private val serverUri = if (host.startsWith("tcp://") || host.startsWith("ssl://")) {
-        host
-    } else {
-        "tcp://$host:1883"
-    }
+
+    private val serverUri =
+        if (host.startsWith("tcp://") || host.startsWith("ssl://")) {
+            host
+        } else {
+            "tcp://$host:1883"
+        }
 
     private val client = MqttClient(serverUri, clientId, null)
 
     fun connect() {
+
         val options = MqttConnectOptions().apply {
             isAutomaticReconnect = true
             isCleanSession = false
@@ -55,16 +56,12 @@ class MqttAlarmClient(
             }
         })
 
-        client.connect(options, null, object : IMqttActionListener {
-
-            override fun onSuccess(asyncActionToken: IMqttToken?) {
-                subscribe()
-            }
-
-            override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                Log.e("MQTT", "Error conectando", exception)
-            }
-        })
+        try {
+            client.connect(options)
+            subscribe()
+        } catch (e: Exception) {
+            Log.e("MQTT", "Error conectando", e)
+        }
     }
 
     private fun subscribe() {
@@ -77,8 +74,6 @@ class MqttAlarmClient(
 
     fun disconnect() {
         try {
-            client.unregisterResources()
-            client.close()
             client.disconnect()
         } catch (_: Exception) {
         }
