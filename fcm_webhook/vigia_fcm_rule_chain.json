@@ -1,0 +1,134 @@
+{
+  "ruleChain": {
+    "name": "Vigia FCM Notifications",
+    "type": "CORE",
+    "firstRuleNodeId": null,
+    "root": false,
+    "debugMode": true,
+    "additionalInfo": {
+      "description": "Envia push FCM via webhook cuando ocurre una alarma. Compatible ThingsBoard CE."
+    }
+  },
+  "metadata": {
+    "firstNodeIndex": 0,
+    "nodes": [
+      {
+        "type": "org.thingsboard.rule.engine.filter.TbMsgTypeSwitchNode",
+        "name": "Tipo de Mensaje",
+        "debugMode": true,
+        "configuration": {
+          "version": 0
+        },
+        "additionalInfo": {
+          "description": "Filtra por tipo de mensaje",
+          "layoutX": 100,
+          "layoutY": 200
+        }
+      },
+      {
+        "type": "org.thingsboard.rule.engine.metadata.TbGetOriginatorAttributesNode",
+        "name": "Obtener Nombre Dispositivo",
+        "debugMode": true,
+        "configuration": {
+          "tellFailureIfAbsent": false,
+          "clientAttributeNames": [],
+          "serverAttributeNames": ["name"],
+          "sharedAttributeNames": [],
+          "latestTsKeyNames": []
+        },
+        "additionalInfo": {
+          "description": "Agrega el nombre del dispositivo originador al metadata",
+          "layoutX": 380,
+          "layoutY": 200
+        }
+      },
+      {
+        "type": "org.thingsboard.rule.engine.rest.TbRestApiCallNode",
+        "name": "Enviar a FCM Webhook",
+        "debugMode": true,
+        "configuration": {
+          "restEndpointUrlPattern": "http://localhost:5555/alarm",
+          "requestMethod": "POST",
+          "useSimpleClientHttpFactory": false,
+          "readTimeoutMs": 15000,
+          "maxParallelRequestsCount": 0,
+          "useRedirectStrategy": false,
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\n  \"secret\": \"vigia2024secret\",\n  \"alarmId\": \"${msg.id.id}\",\n  \"type\": \"${msg.type}\",\n  \"severity\": \"${msg.severity}\",\n  \"status\": \"${msg.status}\",\n  \"originatorName\": \"${metadata.originatorName}\",\n  \"createdTime\": ${msg.createdTime}\n}",
+          "credentials": {
+            "type": "anonymous"
+          }
+        },
+        "additionalInfo": {
+          "description": "Llama al webhook Python que obtiene los fcmTokens de TB y envia a FCM v1",
+          "layoutX": 660,
+          "layoutY": 200
+        }
+      },
+      {
+        "type": "org.thingsboard.rule.engine.action.TbLogNode",
+        "name": "Log Exito",
+        "debugMode": true,
+        "configuration": {
+          "jsScript": "return 'FCM OK — tipo: ' + msg.type + ' | dispositivo: ' + metadata.originatorName + ' | severidad: ' + msg.severity;"
+        },
+        "additionalInfo": {
+          "layoutX": 900,
+          "layoutY": 100
+        }
+      },
+      {
+        "type": "org.thingsboard.rule.engine.action.TbLogNode",
+        "name": "Log Error",
+        "debugMode": true,
+        "configuration": {
+          "jsScript": "return 'Error FCM — tipo: ' + msg.type + ' | error: ' + metadata.error;"
+        },
+        "additionalInfo": {
+          "layoutX": 900,
+          "layoutY": 300
+        }
+      }
+    ],
+    "connections": [
+      {
+        "fromIndex": 0,
+        "toIndex": 1,
+        "type": "Alarm Created"
+      },
+      {
+        "fromIndex": 0,
+        "toIndex": 1,
+        "type": "Alarm Severity Updated"
+      },
+      {
+        "fromIndex": 0,
+        "toIndex": 1,
+        "type": "Alarm Updated"
+      },
+      {
+        "fromIndex": 1,
+        "toIndex": 2,
+        "type": "Success"
+      },
+      {
+        "fromIndex": 1,
+        "toIndex": 2,
+        "type": "Failure"
+      },
+      {
+        "fromIndex": 2,
+        "toIndex": 3,
+        "type": "Success"
+      },
+      {
+        "fromIndex": 2,
+        "toIndex": 4,
+        "type": "Failure"
+      }
+    ],
+    "ruleChainConnections": null
+  }
+}
