@@ -221,24 +221,16 @@ class ThingsBoardApi(
         }
         return list
     }
-}
-
-    /**
-     * Registra el token FCM como atributo del cliente en ThingsBoard.
-     * ThingsBoard lo usará para saber a qué dispositivo enviar el push.
-     * Endpoint: POST /api/v1/{deviceToken}/attributes (client-side)
-     * Para user-level: POST /api/plugins/telemetry/CLIENT_SCOPE
-     */
     /**
      * Registra el token FCM como atributo de cliente en ThingsBoard.
-     * ThingsBoard lo usa en la Rule Chain para saber a qué dispositivo enviar el push.
-     * Endpoint correcto: POST /api/plugins/telemetry/{entityType}/{entityId}/CLIENT_SCOPE
+     * El webhook lo lee para saber a qué dispositivo enviar el push.
      */
     suspend fun registerFcmToken(fcmToken: String, entityType: String, entityId: String) {
         if (entityId.isEmpty()) throw ApiException("Sin entityId para registrar FCM token", 400)
         val body = """{"fcmToken":"$fcmToken","fcmTokenUpdated":${System.currentTimeMillis()}}"""
         post("/api/plugins/telemetry/$entityType/$entityId/CLIENT_SCOPE", body)
     }
+}
 
 class ApiException(message: String, val code: Int = 0) : Exception(message)
 
