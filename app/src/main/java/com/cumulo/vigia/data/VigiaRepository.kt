@@ -199,35 +199,19 @@ class VigiaRepository(private val sessionStore: SessionStore) {
                 val tbApi = api(baseUrl, token)
                 val NULL_CID = "13814000-1dd2-11b2-8080-808080808080"
                 val isSysAdmin = session.authority == "SYS_ADMIN"
-                val isTenantAdmin = session.authority == "TENANT_ADMIN"
-
-                when {
-                    // SysAdmin: registrar en USER scope propio
-                    // El webhook lo encuentra buscando por usuario
-                    isSysAdmin -> {
-                        try {
-                            tbApi.registerFcmTokenMe(fcmToken)
-                            Log.i(TAG, "FCM token registrado — SysAdmin")
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Error registrando SysAdmin token: ${e.message}")
-                        }
-                    }
-                    // Tenant Admin o Customer User: registrar en USER scope
-                    else -> {
-                        // Siempre registrar via /me — funciona para cualquier usuario
-                        try {
-                            tbApi.registerFcmTokenMe(fcmToken)
-                            Log.i(TAG, "FCM token registrado — ${session.authority}")
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Error registrando token via /me: ${e.message}")
-                        }
-                        // También en CUSTOMER si aplica
-                        if (session.customerId.isNotEmpty() && session.customerId != NULL_CID) {
-                            try {
-                                tbApi.registerFcmToken(fcmToken, "CUSTOMER", session.customerId)
-                            } catch (e: Exception) { /* ignorar */ }
-                        }
-                    }
+                // Registrar via /me — funciona para cualquier tipo de usuario
+                try {
+                    tbApi.registerFcmTokenMe(fcmToken)
+                    Log.i(TAG, "FCM token registrado — ${session.authority}")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error registrando token via /me: ${e.message}")
+                }
+                // También en CUSTOMER si aplica
+                val NULL_CID2 = "13814000-1dd2-11b2-8080-808080808080"
+                if (!isSysAdmin && session.customerId.isNotEmpty() && session.customerId != NULL_CID2) {
+                    try {
+                        tbApi.registerFcmToken(fcmToken, "CUSTOMER", session.customerId)
+                    } catch (e: Exception) { /* ignorar */ }
                 }
             }
             Log.i(TAG, "FCM token registrado en ThingsBoard")
@@ -242,7 +226,8 @@ class VigiaRepository(private val sessionStore: SessionStore) {
         return try {
             val devices = withAutoRefresh { token, baseUrl, session ->
                 val tbApi = api(baseUrl, token)
-                val raw = if (session.customerId.isNotEmpty())
+                val NULL_CUSTOMER = "13814000-1dd2-11b2-8080-808080808080"
+                val raw = if (session.customerId.isNotEmpty() && session.customerId != NULL_CUSTOMER)
                     tbApi.getCustomerDevices(session.customerId)
                 else
                     tbApi.getDevices()
