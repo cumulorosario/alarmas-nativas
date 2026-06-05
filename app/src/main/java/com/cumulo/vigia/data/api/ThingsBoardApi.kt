@@ -230,6 +230,19 @@ class ThingsBoardApi(
         val body = """{"fcmToken":"$fcmToken","fcmTokenUpdated":${System.currentTimeMillis()}}"""
         post("/api/plugins/telemetry/$entityType/$entityId/CLIENT_SCOPE", body)
     }
+
+    /**
+     * Registra el FCM token para el usuario actual autenticado.
+     * Funciona para cualquier tipo de usuario (TENANT_ADMIN, CUSTOMER_USER).
+     * ThingsBoard guarda el atributo en el scope del usuario actual.
+     */
+    suspend fun registerFcmTokenMe(fcmToken: String) {
+        val body = """{"fcmToken":"$fcmToken","fcmTokenUpdated":${System.currentTimeMillis()}}"""
+        // Obtener info del usuario actual para saber su entityId
+        val userInfo = get("/api/auth/user")
+        val userId = org.json.JSONObject(userInfo).getJSONObject("id").getString("id")
+        post("/api/plugins/telemetry/USER/$userId/SERVER_SCOPE", body)
+    }
 }
 
 class ApiException(message: String, val code: Int = 0) : Exception(message)

@@ -117,8 +117,8 @@ def get_tb_token():
 def get_all_fcm_tokens():
     """
     Obtiene todos los fcmTokens registrados en ThingsBoard.
-    Los fcmTokens se guardan como atributo CLIENT_SCOPE del customer/tenant.
-    Cachea el resultado 5 minutos para no saturar TB.
+    Busca en CUSTOMER CLIENT_SCOPE, TENANT SERVER_SCOPE y todos los usuarios.
+    Cachea el resultado 2 minutos.
     """
     now = time.time()
     if _fcm_tokens_cache["tokens"] and _fcm_tokens_cache["expires_at"] > now:
@@ -129,49 +129,70 @@ def get_all_fcm_tokens():
         return []
 
     headers = {"X-Authorization": f"Bearer {tb_token}"}
-    tokens  = []
+    tokens  = set()
+
+    def extract_fcm_from_attrs(attrs):
+        for attr in attrs:
+            if attr.get("key") == "fcmToken" and attr.get("value"):
+                tokens.add(attr["value"])
 
     try:
-        # Buscar en todos los customers
+        # 1. Buscar en todos los customers (CLIENT_SCOPE y SERVER_SCOPE)
         resp = requests.get(
             f"{TB_BASE_URL}/api/customers?pageSize=100&page=0",
             headers=headers, timeout=10)
 
         if resp.status_code == 200:
             customers = resp.json().get("data", [])
+            log.info(f"Buscando fcmToken en {len(customers)} customers")
             for customer in customers:
                 cid = customer["id"]["id"]
-                attr_resp = requests.get(
-                    f"{TB_BASE_URL}/api/plugins/telemetry/CUSTOMER/{cid}/values/attributes/CLIENT_SCOPE",
-                    headers=headers, timeout=10)
-                if attr_resp.status_code == 200:
-                    attrs = attr_resp.json()
-                    for attr in attrs:
-                        if attr.get("key") == "fcmToken" and attr.get("value"):
-                            tokens.append(attr["value"])
-                            log.debug(f"fcmToken encontrado en customer {cid}")
+                for scope in ["CLIENT_SCOPE", "SERVER_SCOPE", "SHARED_SCOPE"]:
+                    r = requests.get(
+                        f"{TB_BASE_URL}/api/plugins/telemetry/CUSTOMER/{cid}/values/attributes/{scope}",
+                        headers=headers, timeout=10)
+                    if r.status_code == 200:
+                        extract_fcm_from_attrs(r.json())
 
-        # Tambien buscar a nivel tenant (si el usuario es tenant admin)
-        resp2 = requests.get(
-            f"{TB_BASE_URL}/api/plugins/telemetry/TENANT/values/attributes/CLIENT_SCOPE",
+        # 2. Buscar a nivel tenant en todos los scopes
+        # Primero obtener el tenantId
+        me_resp = requests.get(f"{TB_BASE_URL}/api/auth/user", headers=headers, timeout=10)
+        if me_resp.status_code == 200:
+            tenant_id = me_resp.json().get("tenantId", {}).get("id", "")
+            if tenant_id:
+                log.info(f"Buscando fcmToken en tenant {tenant_id}")
+                for scope in ["CLIENT_SCOPE", "SERVER_SCOPE", "SHARED_SCOPE"]:
+                    r = requests.get(
+                        f"{TB_BASE_URL}/api/plugins/telemetry/TENANT/{tenant_id}/values/attributes/{scope}",
+                        headers=headers, timeout=10)
+                    if r.status_code == 200:
+                        extract_fcm_from_attrs(r.json())
+
+        # 3. Buscar en usuarios del tenant
+        users_resp = requests.get(
+            f"{TB_BASE_URL}/api/users?pageSize=100&page=0",
             headers=headers, timeout=10)
-        if resp2.status_code == 200:
-            for attr in resp2.json():
-                if attr.get("key") == "fcmToken" and attr.get("value"):
-                    if attr["value"] not in tokens:
-                        tokens.append(attr["value"])
+        if users_resp.status_code == 200:
+            users = users_resp.json().get("data", [])
+            log.info(f"Buscando fcmToken en {len(users)} usuarios")
+            for user in users:
+                uid = user["id"]["id"]
+                for scope in ["CLIENT_SCOPE", "SERVER_SCOPE"]:
+                    r = requests.get(
+                        f"{TB_BASE_URL}/api/plugins/telemetry/USER/{uid}/values/attributes/{scope}",
+                        headers=headers, timeout=10)
+                    if r.status_code == 200:
+                        extract_fcm_from_attrs(r.json())
 
     except Exception as e:
         log.error(f"Error obteniendo fcmTokens de TB: {e}")
 
-    # Eliminar duplicados
-    tokens = list(set(tokens))
+    token_list = list(tokens)
+    _fcm_tokens_cache["tokens"]     = token_list
+    _fcm_tokens_cache["expires_at"] = time.time() + 120  # 2 min cache
 
-    _fcm_tokens_cache["tokens"]     = tokens
-    _fcm_tokens_cache["expires_at"] = time.time() + 300  # 5 min cache
-
-    log.info(f"fcmTokens encontrados: {len(tokens)}")
-    return tokens
+    log.info(f"fcmTokens encontrados: {len(token_list)}")
+    return token_list
 
 
 # ── Envio FCM ──────────────────────────────────────────────────────────────────

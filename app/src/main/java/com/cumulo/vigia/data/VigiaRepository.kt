@@ -197,15 +197,30 @@ class VigiaRepository(private val sessionStore: SessionStore) {
         return try {
             withAutoRefresh { token, baseUrl, session ->
                 val tbApi = api(baseUrl, token)
-                // Registrar en el contexto correcto según el tipo de usuario
                 val NULL_CID = "13814000-1dd2-11b2-8080-808080808080"
-                when {
-                    session.customerId.isNotEmpty() && session.customerId != NULL_CID ->
+                var registered = false
+                // 1. En CUSTOMER scope si hay customer real
+                if (session.customerId.isNotEmpty() && session.customerId != NULL_CID) {
+                    try {
                         tbApi.registerFcmToken(fcmToken, "CUSTOMER", session.customerId)
-                    session.tenantId.isNotEmpty() ->
-                        tbApi.registerFcmToken(fcmToken, "TENANT", session.tenantId)
-                    else ->
-                        Log.w(TAG, "Sin customerId ni tenantId — no se puede registrar FCM token")
+                        Log.i(TAG, "FCM token registrado en CUSTOMER scope")
+                        registered = true
+                    } catch (e: Exception) {
+                        Log.w(TAG, "No se pudo registrar en CUSTOMER: ${e.message}")
+                    }
+                }
+                // 2. Registrar via endpoint /me (funciona para cualquier usuario)
+                try {
+                    tbApi.registerFcmTokenMe(fcmToken)
+                    Log.i(TAG, "FCM token registrado via /me endpoint")
+                    registered = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "No se pudo registrar via /me: ${e.message}")
+                }
+                // 3. En TENANT como fallback
+                if (!registered && session.tenantId.isNotEmpty()) {
+                    tbApi.registerFcmToken(fcmToken, "TENANT", session.tenantId)
+                    Log.i(TAG, "FCM token registrado en TENANT scope")
                 }
             }
             Log.i(TAG, "FCM token registrado en ThingsBoard")
