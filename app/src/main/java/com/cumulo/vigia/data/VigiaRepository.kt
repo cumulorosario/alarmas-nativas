@@ -198,29 +198,36 @@ class VigiaRepository(private val sessionStore: SessionStore) {
             withAutoRefresh { token, baseUrl, session ->
                 val tbApi = api(baseUrl, token)
                 val NULL_CID = "13814000-1dd2-11b2-8080-808080808080"
-                var registered = false
-                // 1. En CUSTOMER scope si hay customer real
-                if (session.customerId.isNotEmpty() && session.customerId != NULL_CID) {
-                    try {
-                        tbApi.registerFcmToken(fcmToken, "CUSTOMER", session.customerId)
-                        Log.i(TAG, "FCM token registrado en CUSTOMER scope")
-                        registered = true
-                    } catch (e: Exception) {
-                        Log.w(TAG, "No se pudo registrar en CUSTOMER: ${e.message}")
+                val isSysAdmin = session.authority == "SYS_ADMIN"
+                val isTenantAdmin = session.authority == "TENANT_ADMIN"
+
+                when {
+                    // SysAdmin: registrar en USER scope propio
+                    // El webhook lo encuentra buscando por usuario
+                    isSysAdmin -> {
+                        try {
+                            tbApi.registerFcmTokenMe(fcmToken)
+                            Log.i(TAG, "FCM token registrado — SysAdmin")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error registrando SysAdmin token: ${e.message}")
+                        }
                     }
-                }
-                // 2. Registrar via endpoint /me (funciona para cualquier usuario)
-                try {
-                    tbApi.registerFcmTokenMe(fcmToken)
-                    Log.i(TAG, "FCM token registrado via /me endpoint")
-                    registered = true
-                } catch (e: Exception) {
-                    Log.w(TAG, "No se pudo registrar via /me: ${e.message}")
-                }
-                // 3. En TENANT como fallback
-                if (!registered && session.tenantId.isNotEmpty()) {
-                    tbApi.registerFcmToken(fcmToken, "TENANT", session.tenantId)
-                    Log.i(TAG, "FCM token registrado en TENANT scope")
+                    // Tenant Admin o Customer User: registrar en USER scope
+                    else -> {
+                        // Siempre registrar via /me — funciona para cualquier usuario
+                        try {
+                            tbApi.registerFcmTokenMe(fcmToken)
+                            Log.i(TAG, "FCM token registrado — ${session.authority}")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error registrando token via /me: ${e.message}")
+                        }
+                        // También en CUSTOMER si aplica
+                        if (session.customerId.isNotEmpty() && session.customerId != NULL_CID) {
+                            try {
+                                tbApi.registerFcmToken(fcmToken, "CUSTOMER", session.customerId)
+                            } catch (e: Exception) { /* ignorar */ }
+                        }
+                    }
                 }
             }
             Log.i(TAG, "FCM token registrado en ThingsBoard")
