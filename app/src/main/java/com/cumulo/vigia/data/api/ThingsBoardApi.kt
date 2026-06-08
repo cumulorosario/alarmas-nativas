@@ -80,7 +80,7 @@ class ThingsBoardApi(
      */
     suspend fun getAlarms(pageSize: Int = 100): List<Alarm> {
         return try {
-            val raw = get("/api/alarms?pageSize=$pageSize&page=0")
+            val raw = get("/api/alarms?pageSize=$pageSize&page=0&searchStatus=ACTIVE")
             parseAlarmList(raw)
         } catch (e: ApiException) {
             when (e.code) {
@@ -93,7 +93,7 @@ class ThingsBoardApi(
 
     suspend fun getAlarmsByTenant(tenantId: String, pageSize: Int = 100): List<Alarm> {
         return try {
-            val raw = get("/api/alarm/TENANT/$tenantId?pageSize=$pageSize&page=0")
+            val raw = get("/api/alarm/TENANT/$tenantId?pageSize=$pageSize&page=0&searchStatus=ACTIVE")
             parseAlarmList(raw)
         } catch (e: ApiException) {
             when (e.code) {
@@ -105,7 +105,7 @@ class ThingsBoardApi(
 
     suspend fun getAlarmsByCustomer(customerId: String, pageSize: Int = 100): List<Alarm> {
         return try {
-            val raw = get("/api/alarm/CUSTOMER/$customerId?pageSize=$pageSize&page=0")
+            val raw = get("/api/alarm/CUSTOMER/$customerId?pageSize=$pageSize&page=0&searchStatus=ACTIVE")
             parseAlarmList(raw)
         } catch (e: ApiException) {
             when (e.code) {
@@ -117,7 +117,7 @@ class ThingsBoardApi(
 
     suspend fun getAlarmsByDevice(deviceId: String): List<Alarm> {
         return try {
-            val raw = get("/api/alarm/DEVICE/$deviceId?pageSize=20&page=0")
+            val raw = get("/api/alarm/DEVICE/$deviceId?pageSize=20&page=0&searchStatus=ACTIVE")
             parseAlarmList(raw)
         } catch (e: ApiException) {
             when (e.code) {
