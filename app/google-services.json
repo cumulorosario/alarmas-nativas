@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "923348884871",
-    "project_id": "cumulo-vigia-industrial",
-    "storage_bucket": "cumulo-vigia-industrial.firebasestorage.app"
+    "project_number": "354407839675",
+    "project_id": "cumulo-vigia-industrial-a5cd9",
+    "storage_bucket": "cumulo-vigia-industrial-a5cd9.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:923348884871:android:b8a7389c9d1b1b4cfcc722",
+        "mobilesdk_app_id": "1:354407839675:android:db804f302c4067347cf69e",
         "android_client_info": {
           "package_name": "com.cumulo.vigia"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAPE96kIMAXlqAKKbvSidA-Zf0FQV1NqG0"
+          "current_key": "AIzaSyBhLzF458_76Wz070wqV-jmNbvl8zHyzoo"
         }
       ],
       "services": {
