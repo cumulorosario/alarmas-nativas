@@ -1,5 +1,9 @@
 package com.cumulo.vigia.service
 
+import android.app.KeyguardManager
+import android.content.Intent
+import android.os.Build
+import android.os.PowerManager
 import android.util.Log
 import com.cumulo.vigia.data.VigiaRepository
 import com.cumulo.vigia.data.local.SessionStore
@@ -99,6 +103,28 @@ class VigiaFirebaseService : FirebaseMessagingService() {
                 // Mostrar notificación inmediata
                 AlarmNotificationManager.createChannels(applicationContext)
                 AlarmNotificationManager.showCriticalAlarm(applicationContext, alarm)
+
+                // En Android 10+ lanzar la activity directamente para despertar pantalla
+                // setFullScreenIntent solo muestra la notificación en Android 12+ desde background
+                val km = applicationContext.getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+                val pm = applicationContext.getSystemService(POWER_SERVICE) as PowerManager
+                val isLocked = km.isKeyguardLocked
+                val isScreenOff = !pm.isInteractive
+
+                if (isScreenOff || isLocked) {
+                    val fullScreenIntent = Intent(applicationContext,
+                        com.cumulo.vigia.ui.AlarmFullScreenActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        putExtra(AlarmNotificationManager.EXTRA_ALARM_ID, alarm.id.id)
+                        putExtra(AlarmNotificationManager.EXTRA_ALARM_NAME, alarm.originatorName)
+                        putExtra(AlarmNotificationManager.EXTRA_ALARM_TYPE, alarm.displayType())
+                        putExtra(AlarmNotificationManager.EXTRA_ALARM_SEVERITY, alarm.severity)
+                    }
+                    applicationContext.startActivity(fullScreenIntent)
+                    Log.i(TAG, "AlarmFullScreenActivity lanzada directamente")
+                }
 
                 // Guardar en notifiedIds para evitar duplicados con el backup poll
                 val updated = notifiedIds.toMutableSet().also { it.add(alarm.id.id) }

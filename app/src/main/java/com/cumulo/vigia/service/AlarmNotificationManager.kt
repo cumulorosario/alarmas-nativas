@@ -145,6 +145,8 @@ object AlarmNotificationManager {
             .setSmallIcon(R.drawable.ic_notification)
             .setPriority(priority)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setColorized(true)
+            .setColor(android.graphics.Color.RED)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(false)
             .setOngoing(alarm.isCritical)
@@ -174,18 +176,29 @@ object AlarmNotificationManager {
     private fun wakeScreen(context: Context) {
         try {
             val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-            @Suppress("DEPRECATION")
+            // PARTIAL_WAKE_LOCK — mantiene CPU activo, no deprecated
             val wl = pm.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
-                PowerManager.ACQUIRE_CAUSES_WAKEUP or
-                PowerManager.ON_AFTER_RELEASE,
+                PowerManager.PARTIAL_WAKE_LOCK,
                 "VigiaIndustrial:AlarmWakeLock"
             )
-            // Adquirir SIN release inmediato — soltar después de 10s desde el main thread
             wl.acquire(10_000L)
-            // NO llamar wl.release() aquí — acquire con timeout lo libera solo
+
+            // En Android 10+ usar WindowManager flags para despertar pantalla
+            // Esto se maneja en AlarmFullScreenActivity con turnScreenOn=true en Manifest
+            // Para Android 10+ lanzar la activity directamente desde el servicio
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                // La pantalla se despierta via setFullScreenIntent + turnScreenOn en Manifest
+                // No necesitamos WakeLock de pantalla en versiones modernas
+            } else {
+                @Suppress("DEPRECATION")
+                pm.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                    "VigiaIndustrial:ScreenWakeLock"
+                ).acquire(10_000L)
+            }
         } catch (e: Exception) {
-            // Sin permiso de wake lock — la notificación igual aparece
+            // Sin permiso — la notificación igual aparece
         }
     }
 }
