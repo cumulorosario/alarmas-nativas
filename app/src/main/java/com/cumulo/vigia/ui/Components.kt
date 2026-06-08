@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,6 +73,7 @@ fun AlarmCard(
     onAck: (String) -> Unit,
     onClear: (String) -> Unit
 ) {
+    val context = LocalContext.current
     val borderColor = when {
         alarm.isCleared                  -> EmeraldGreen.copy(alpha = 0.4f)
         alarm.severity == "CRITICAL"     -> CriticalColor.copy(alpha = 0.6f)
@@ -127,6 +129,38 @@ fun AlarmCard(
             }
 
             Spacer(Modifier.height(12.dp))
+
+            // Botón compartir — siempre visible
+            TextButton(
+                onClick = {
+                    val emoji = when (alarm.severity) {
+                        "CRITICAL" -> "🚨"
+                        "MAJOR"    -> "⚠️"
+                        "MINOR"    -> "ℹ️"
+                        else       -> "🔔"
+                    }
+                    val text = buildString {
+                        appendLine("$emoji ALARMA ${alarm.severity}")
+                        appendLine("Dispositivo: ${alarm.originatorName}")
+                        appendLine("Tipo: ${alarm.displayType()}")
+                        appendLine("Estado: ${alarm.displayStatus()}")
+                        appendLine("Hora: ${formatTimestamp(alarm.createdTime)}")
+                        appendLine()
+                        appendLine("Vigia Industrial — Cumulo Ingeniería")
+                    }
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                        putExtra(Intent.EXTRA_SUBJECT, "Alarma ${alarm.severity}: ${alarm.originatorName}")
+                    }
+                    context.startActivity(Intent.createChooser(intent, "Compartir alarma"))
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Share, null, tint = ZincMuted, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Compartir", color = ZincMuted, fontSize = 12.sp)
+            }
 
             // Action buttons — logic:
             // ACTIVE + UNACK  → solo "RECONOCER" (también silencia la notificación)
