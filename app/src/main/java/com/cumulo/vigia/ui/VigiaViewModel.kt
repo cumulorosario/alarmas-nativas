@@ -12,6 +12,8 @@ import com.cumulo.vigia.model.Alarm
 import com.cumulo.vigia.model.Device
 import com.cumulo.vigia.model.Result
 import com.cumulo.vigia.service.AlarmNotificationManager
+import com.cumulo.vigia.service.VigiaFirebaseService
+import com.google.firebase.messaging.FirebaseMessaging
 import com.cumulo.vigia.util.ErrorTranslator
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -92,7 +94,12 @@ class VigiaViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _loginState.update { it.copy(isLoading = true, error = null) }
             when (val r = repository.login(state.username, state.password, state.rememberMe)) {
-                is Result.Success -> { _isAuthenticated.value = true; loadData() }
+                is Result.Success -> {
+                    _isAuthenticated.value = true
+                    loadData()
+                    // Registrar token FCM en ThingsBoard tras login exitoso
+                    registerFcmTokenIfNeeded()
+                }
                 is Result.Error   -> _loginState.update { it.copy(isLoading = false, error = ErrorTranslator.translate(r.message)) }
                 else -> {}
             }
@@ -189,6 +196,27 @@ class VigiaViewModel(application: Application) : AndroidViewModel(application) {
         (getApplication<Application>()
             .getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
             .cancel(notifId)
+    }
+
+    fun registerFcmTokenIfNeeded() {
+        viewModelScope.launch {
+            try {
+                // Verificar si hay token pendiente de registrar
+                val pending = VigiaFirebaseService.getPendingToken(getApplication())
+                if (pending != null) {
+                    repository.registerFcmToken(pending)
+                    return@launch
+                }
+                // Obtener token FCM actual y registrarlo
+                FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                    viewModelScope.launch {
+                        repository.registerFcmToken(token)
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("VigiaViewModel", "FCM token registration error: ${e.message}")
+            }
+        }
     }
 
     fun updateAlarmSettings(vibrate: Boolean, sound: Boolean, wake: Boolean) {

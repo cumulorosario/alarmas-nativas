@@ -12,74 +12,80 @@ import com.cumulo.vigia.data.local.SessionStore
 import com.cumulo.vigia.model.Result as VigiaResult
 
 /**
- * WorkManager worker — garantizado por el SO cada ~15 minutos.
- * Corre sin importar si hay red o no (sin NetworkType constraint).
- * 1. Reinicia el servicio si está caído.
- * 2. Si hay red, hace un poll directo para cubrir alarmas perdidas.
+ * WorkManager Worker — ejecutado cada 15 minutos por el SO.
+ * Garantiza funcionamiento incluso si el proceso fue matado.
+ *
+ * Responsabilidades:
+ * 1. Reiniciar ForegroundService si está caído
+ * 2. Hacer un poll HTTP propio (independiente del servicio)
+ * 3. Notificar alarmas activas no notificadas
  */
 class AlarmWatchdogWorker(
     private val context: Context,
     params: WorkerParameters
 ) : CoroutineWorker(context, params) {
 
-    private val TAG = "AlarmWatchdogWorker"
-
-    override suspend fun doWork(): androidx.work.ListenableWorker.Result {
-        Log.i(TAG, "Watchdog ejecutando")
+    override suspend fun doWork(): Result {
+        Log.i("AlarmWatchdogWorker", "Watchdog ejecutando — servicio: ${AlarmPollingService.isRunning}")
 
         val sessionStore = SessionStore(context)
-        val session      = sessionStore.getSession()
-
-        if (!session.isLoggedIn) {
-            Log.d(TAG, "Sin sesión — nada que hacer")
-            return androidx.work.ListenableWorker.Result.success()
+        val session = try { sessionStore.getSession() } catch (e: Exception) {
+            return Result.success()
         }
+        if (!session.isLoggedIn) return Result.success()
 
         // 1. Reiniciar servicio si está caído
-        if (true) {
-            Log.i(TAG, "Servicio caído — reiniciando")
+        if (!AlarmPollingService.isRunning) {
+            Log.i("AlarmWatchdogWorker", "Servicio caído — reiniciando")
             try {
                 val intent = Intent(context, AlarmPollingService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                     context.startForegroundService(intent)
-                } else {
+                else
                     context.startService(intent)
-                }
             } catch (e: Exception) {
-                Log.e(TAG, "No se pudo reiniciar el servicio: ${e.message}")
+                Log.e("AlarmWatchdogWorker", "Error reiniciando: ${e.message}")
             }
         }
 
-        // 2. Poll directo independiente — cubre el gap mientras el servicio estuvo caído
-        // No usamos notifiedAlarmIds del servicio (distinto proceso/instancia)
-        // por eso notificamos todas las alarmas activas que encontremos
+        // 2. Poll HTTP independiente — no depende del estado del servicio
         try {
             val repository  = VigiaRepository(sessionStore)
             val filterStore = AlarmFilterStore(context)
             val filters     = filterStore.getFilters()
+            val notifiedIds = AlarmPollingReceiver.getNotifiedIds(context).toMutableSet()
 
             when (val result = repository.getAlarms()) {
                 is VigiaResult.Success -> {
-                    result.data
-                        .filter { it.isActive && !it.isCleared }
-                        .forEach { alarm ->
+                    val activeAlarms = result.data.filter { it.isActive && !it.isCleared }
+                    val activeIds    = activeAlarms.map { it.id.id }.toSet()
+                    notifiedIds.retainAll(activeIds)
+
+                    var newNotifications = 0
+                    activeAlarms.forEach { alarm ->
+                        if (alarm.id.id !in notifiedIds) {
                             val isMuted = filters.any { f ->
                                 f.muted && f.alarmType == alarm.type &&
                                 alarm.originatorName.equals(f.deviceName, ignoreCase = true)
                             }
                             if (!isMuted) {
-                                Log.i(TAG, "Watchdog notificando: ${alarm.id.id} ${alarm.severity}")
                                 AlarmNotificationManager.showCriticalAlarm(context, alarm)
+                                newNotifications++
                             }
+                            notifiedIds.add(alarm.id.id)
                         }
+                    }
+                    AlarmPollingReceiver.saveNotifiedIds(context, notifiedIds)
+                    Log.i("AlarmWatchdogWorker", "Poll OK — ${activeAlarms.size} activas, $newNotifications nuevas")
                 }
-                is VigiaResult.Error -> Log.w(TAG, "Error en watchdog poll: ${result.message}")
+                is VigiaResult.Error ->
+                    Log.w("AlarmWatchdogWorker", "Poll error: ${result.message}")
                 else -> {}
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Excepción en watchdog: ${e.message}")
+            Log.e("AlarmWatchdogWorker", "Excepción: ${e.message}")
         }
 
-        return androidx.work.ListenableWorker.Result.success()
+        return Result.success()
     }
 }

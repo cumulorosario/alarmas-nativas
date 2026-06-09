@@ -8,33 +8,21 @@ import android.util.Log
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val action = intent.action ?: return
-        Log.i("BootReceiver", "Received: $action")
+        if (intent.action !in listOf(
+                Intent.ACTION_BOOT_COMPLETED,
+                "android.intent.action.QUICKBOOT_POWERON",
+                "com.htc.intent.action.QUICKBOOT_POWERON")) return
 
-        when (action) {
-            Intent.ACTION_BOOT_COMPLETED,
-            "android.intent.action.QUICKBOOT_POWERON",
-            "com.htc.intent.action.QUICKBOOT_POWERON" -> {
-                Log.i("BootReceiver", "Boot completado — iniciando servicio y programando polls")
-                startService(context)
-                // Programar el primer poll inmediato via AlarmManager
-                AlarmPollingService.scheduleNextPoll(context, 5_000L)
-                // WorkManager watchdog como respaldo
-                AlarmPollingService.scheduleWorkManagerFallback(context)
-            }
-        }
-    }
-
-    private fun startService(context: Context) {
+        Log.i("BootReceiver", "Boot completado — iniciando servicio")
         try {
-            val intent = Intent(context, AlarmPollingService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            val svcIntent = Intent(context, AlarmPollingService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                context.startForegroundService(svcIntent)
+            else
+                context.startService(svcIntent)
         } catch (e: Exception) {
-            Log.e("BootReceiver", "Error iniciando servicio: ${e.message}")
+            Log.e("BootReceiver", "Error: ${e.message}")
         }
+        AlarmPollingService.scheduleWorkManagerFallback(context)
     }
 }

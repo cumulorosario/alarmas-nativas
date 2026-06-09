@@ -34,10 +34,11 @@ class VigiaRepository(private val sessionStore: SessionStore) {
         return try {
             block(session.token, session.baseUrl, session)
         } catch (e: ApiException) {
-            if (e.code == 401 || e.message?.contains("token", true) == true || e.message?.contains("jwt", true) == true) {
+            if (e.code == 401) {
                 Log.w(TAG, "401 recibido — renovando token")
                 val newToken = renewToken(session)
                 if (newToken != null) {
+                    // Leer sesión actualizada con el nuevo token
                     val updated = sessionStore.getSession()
                     Log.i(TAG, "Token renovado — reintentando operación")
                     block(newToken, updated.baseUrl, updated)
@@ -45,29 +46,11 @@ class VigiaRepository(private val sessionStore: SessionStore) {
                     Log.e(TAG, "No se pudo renovar el token — reintentará en el próximo ciclo")
                     throw e
                 }
-            } else {
-                throw e
-            }
-        } catch (e: Exception) {
-            val msg = e.message.orEmpty()
-            val shouldRetryAuth = listOf("401", "unauthorized", "token", "jwt", "expired").any {
-                msg.contains(it, ignoreCase = true)
-            }
-
-            if (shouldRetryAuth) {
-                Log.w(TAG, "Posible token expirado detectado por excepción genérica — renovando")
-                val newToken = renewToken(session)
-                if (newToken != null) {
-                    val updated = sessionStore.getSession()
-                    return block(newToken, updated.baseUrl, updated)
-                }
-            }
-
-            throw e
+            } else throw e
         }
     }
 
-private suspend fun renewToken(session: SessionStore.Session): String? {
+    private suspend fun renewToken(session: SessionStore.Session): String? {
         return tokenRefreshMutex.withLock {
             // Si otro coroutine ya renovó mientras esperábamos, usar ese token
             val fresh = sessionStore.getSession()
@@ -151,18 +134,33 @@ private suspend fun renewToken(session: SessionStore.Session): String? {
                 // IMPORTANTE: usar el token y session del parámetro, NO releer sessionStore aquí
                 // Esto garantiza consistencia si el token fue renovado en el reintento
                 val tbApi = api(baseUrl, token)
-                // Restaurado a estrategia simple y compatible con customer users
-                // El merge multi-endpoint generaba listas vacías en algunos tenants.
+                val result = mutableListOf<Alarm>()
 
-                val result = when {
-                    session.customerId.isNotEmpty() -> {
-                        tbApi.getAlarmsByCustomer(session.customerId, 100)
+                // Estrategia 1: endpoint general (el más completo)
+                result.addAll(tbApi.getAlarms(100))
+
+                // Estrategia 2: por tenant (lanza 401 si el token es inválido)
+                if (session.tenantId.isNotEmpty()) {
+                    tbApi.getAlarmsByTenant(session.tenantId, 100).forEach { a ->
+                        if (result.none { it.id.id == a.id.id }) result.add(a)
                     }
-                    session.tenantId.isNotEmpty() -> {
-                        tbApi.getAlarmsByTenant(session.tenantId, 100)
+                }
+
+                // Estrategia 3: por customer
+                if (session.customerId.isNotEmpty()) {
+                    tbApi.getAlarmsByCustomer(session.customerId, 100).forEach { a ->
+                        if (result.none { it.id.id == a.id.id }) result.add(a)
                     }
-                    else -> {
-                        tbApi.getAlarms(100)
+                }
+
+                // Estrategia 4: por dispositivo (solo si hay pocas alarmas)
+                if (result.size < 5) {
+                    val devices = tbApi.getDevices(30)
+                    coroutineScope {
+                        devices.map { d -> async { tbApi.getAlarmsByDevice(d.id.id) } }
+                            .map { it.await() }
+                    }.flatten().forEach { a ->
+                        if (result.none { it.id.id == a.id.id }) result.add(a)
                     }
                 }
 
@@ -195,11 +193,41 @@ private suspend fun renewToken(session: SessionStore.Session): String? {
         }
     }
 
+    suspend fun registerFcmToken(fcmToken: String): Result<Unit> {
+        return try {
+            withAutoRefresh { token, baseUrl, session ->
+                val tbApi = api(baseUrl, token)
+                val NULL_CID = "13814000-1dd2-11b2-8080-808080808080"
+                val isSysAdmin = session.authority == "SYS_ADMIN"
+                // Registrar via /me — funciona para cualquier tipo de usuario
+                try {
+                    tbApi.registerFcmTokenMe(fcmToken)
+                    Log.i(TAG, "FCM token registrado — ${session.authority}")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error registrando token via /me: ${e.message}")
+                }
+                // También en CUSTOMER si aplica
+                val NULL_CID2 = "13814000-1dd2-11b2-8080-808080808080"
+                if (!isSysAdmin && session.customerId.isNotEmpty() && session.customerId != NULL_CID2) {
+                    try {
+                        tbApi.registerFcmToken(fcmToken, "CUSTOMER", session.customerId)
+                    } catch (e: Exception) { /* ignorar */ }
+                }
+            }
+            Log.i(TAG, "FCM token registrado en ThingsBoard")
+            Result.Success(Unit)
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo registrar FCM token: ${e.message}")
+            Result.Error(e.message ?: "Error registrando FCM token")
+        }
+    }
+
     suspend fun getDevices(): Result<List<Device>> {
         return try {
             val devices = withAutoRefresh { token, baseUrl, session ->
                 val tbApi = api(baseUrl, token)
-                val raw = if (session.customerId.isNotEmpty())
+                val NULL_CUSTOMER = "13814000-1dd2-11b2-8080-808080808080"
+                val raw = if (session.customerId.isNotEmpty() && session.customerId != NULL_CUSTOMER)
                     tbApi.getCustomerDevices(session.customerId)
                 else
                     tbApi.getDevices()
