@@ -1,0 +1,23 @@
+[Unit]
+Description=Vigia FCM Webhook Server
+After=network.target thingsboard.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/vigia
+
+# Configurar con las credenciales reales del admin de ThingsBoard
+Environment="TB_USERNAME=admin@thingsboard.org"
+Environment="TB_PASSWORD=cambiar_password"
+
+ExecStart=/usr/bin/python3 /opt/vigia/fcm_webhook.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fcm_webhook
+
+[Install]
+WantedBy=multi-user.target

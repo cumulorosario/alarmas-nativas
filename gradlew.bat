@@ -1,43 +1,76 @@
-@rem Gradle startup script for Windows
+workflows:
+  android-native-debug:
+    name: Vigia Industrial — Debug APK
+    max_build_duration: 60
+    instance_type: mac_mini_m1
 
-@if "%DEBUG%"=="" @echo off
-@rem Set local scope for the variables with windows NT shell
-if "%OS%"=="Windows_NT" setlocal
+    environment:
+      java: 17
 
-set DIRNAME=%~dp0
-if "%DIRNAME%"=="" set DIRNAME=.
-@rem This is normally unused
-set APP_BASE_NAME=%~n0
-set APP_HOME=%DIRNAME%
+    scripts:
+      - name: Set permissions on Gradle wrapper
+        script: chmod +x gradlew
 
-@rem Resolve any "." and ".." in APP_HOME to make it shorter.
-for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
+      - name: Remove junk files
+        script: |
+          find . -name "desktop.ini" -delete
+          find . -name "Thumbs.db" -delete
+          find . -name ".DS_Store" -delete
+          rm -rf app/src/main/res/values-v27
+          echo "Cleanup done"
 
-@rem Add default JVM options here.
-set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
+      - name: Build Debug APK
+        script: |
+          ./gradlew assembleDebug \
+            -Dorg.gradle.jvmargs="-Xmx2g" \
+            --no-daemon \
+            --stacktrace
 
-@rem Find java.exe
-if defined JAVA_HOME goto findJavaFromJavaHome
-set JAVA_EXE=java.exe
-goto execute
+    artifacts:
+      - app/build/outputs/apk/debug/*.apk
 
-:findJavaFromJavaHome
-set JAVA_HOME=%JAVA_HOME:"=%
-set JAVA_EXE=%JAVA_HOME%/bin/java.exe
-if exist "%JAVA_EXE%" goto execute
-echo. 1>&2
-echo ERROR: JAVA_HOME is set to an invalid directory: %JAVA_HOME% 1>&2
-exit /b 1
+    publishing:
+      email:
+        recipients:
+          - cumulorosario@gmail.com
+        notify:
+          success: true
+          failure: true
 
-:execute
-@rem Setup the command line
-set CLASSPATH=%APP_HOME%\gradle\wrapper\gradle-wrapper.jar
+  android-native-release:
+    name: Vigia Industrial — Release AAB
+    max_build_duration: 60
+    instance_type: mac_mini_m1
 
-@rem Execute Gradle
-"%JAVA_EXE%" %DEFAULT_JVM_OPTS% %JAVA_OPTS% %GRADLE_OPTS% "-Dorg.gradle.appname=%APP_BASE_NAME%" -classpath "%CLASSPATH%" org.gradle.wrapper.GradleWrapperMain %*
+    environment:
+      java: 17
 
-:end
-if "%ERRORLEVEL%"=="0" goto mainEnd
-exit 1
-:mainEnd
-if "%OS%"=="Windows_NT" endlocal
+    scripts:
+      - name: Set permissions on Gradle wrapper
+        script: chmod +x gradlew
+
+      - name: Remove junk files
+        script: |
+          find . -name "desktop.ini" -delete
+          find . -name "Thumbs.db" -delete
+          find . -name ".DS_Store" -delete
+          rm -rf app/src/main/res/values-v27
+          echo "Cleanup done"
+
+      - name: Build Release AAB
+        script: |
+          ./gradlew bundleRelease \
+            -Dorg.gradle.jvmargs="-Xmx2g" \
+            --no-daemon \
+            --stacktrace
+
+    artifacts:
+      - app/build/outputs/bundle/release/*.aab
+
+    publishing:
+      email:
+        recipients:
+          - cumulorosario@gmail.com
+        notify:
+          success: true
+          failure: true
