@@ -129,17 +129,14 @@ class VigiaViewModel(application: Application) : AndroidViewModel(application) {
                         val filters = filterStore.getFilters()
                         val filtered = r.data
                             .filter { alarm ->
+                                // Ocultar si hay un filtro hidden para este tipo
+                                // (buscamos por tipo de alarma en cualquier dispositivo con ese nombre)
                                 filters.none { f ->
                                     f.hidden && f.alarmType == alarm.type &&
                                     alarm.originatorName.equals(f.deviceName, ignoreCase = true)
                                 }
                             }
-                            .let { all ->
-                                // Separar activas y resueltas para no mezclar el límite
-                                val active  = all.filter { it.isActive && !it.isCleared }.take(MAX_ALARMS)
-                                val cleared = all.filter { it.isCleared }.take(MAX_ALARMS)
-                                (active + cleared).sortedByDescending { it.createdTime }
-                            }
+                            .take(MAX_ALARMS)
 
                         _dashboardState.update {
                             it.copy(
