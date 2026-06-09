@@ -1,288 +1,228 @@
-package com.cumulo.vigia.ui.login
+package com.cumulo.vigia.ui
 
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
-import androidx.compose.animation.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
-import androidx.fragment.app.FragmentActivity
-import com.cumulo.vigia.ui.VigiaViewModel
-import com.cumulo.vigia.ui.theme.*
+import android.app.Application
+import android.app.NotificationManager
+import android.content.Context
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.cumulo.vigia.data.VigiaRepository
+import com.cumulo.vigia.data.local.AlarmFilterStore
+import com.cumulo.vigia.data.local.SessionStore
+import com.cumulo.vigia.model.Alarm
+import com.cumulo.vigia.model.Device
+import com.cumulo.vigia.model.Result
+import com.cumulo.vigia.service.AlarmNotificationManager
+import com.cumulo.vigia.service.VigiaFirebaseService
+import com.google.firebase.messaging.FirebaseMessaging
+import com.cumulo.vigia.util.ErrorTranslator
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 
-@Composable
-fun LoginScreen(viewModel: VigiaViewModel) {
-    val state by viewModel.loginState.collectAsState()
-    val context = LocalContext.current
-    val focusManager = LocalFocusManager.current
-    var passwordVisible by remember { mutableStateOf(false) }
+data class LoginState(
+    val username: String = "",
+    val password: String = "",
+    val rememberMe: Boolean = false,
+    val isLoading: Boolean = false,
+    val error: String? = null
+)
 
-    val canUseBiometrics = remember {
-        val bm = BiometricManager.from(context)
-        bm.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL) == BiometricManager.BIOMETRIC_SUCCESS
-    }
+data class DashboardState(
+    val alarms: List<Alarm> = emptyList(),
+    val devices: List<Device> = emptyList(),
+    val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
+    val error: String? = null,
+    val lastUpdated: Long = 0L
+) {
+    val activeAlarms  get() = alarms.filter { it.isActive && !it.isCleared }
+    val pendingAlarms get() = alarms.filter { !it.isCleared && (it.isActive || !it.isAcknowledged) }
+    val onlineDevices get() = devices.count { it.online }
+    val criticalCount get() = activeAlarms.count { it.isCritical }
+}
 
-    val hasSavedCredentials = state.username.isNotEmpty() && state.rememberMe
+private const val MAX_ALARMS = 20
 
-    fun launchBiometric() {
-        if (context !is FragmentActivity) return
-        val executor = ContextCompat.getMainExecutor(context)
-        val prompt = BiometricPrompt(context, executor,
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    viewModel.login()
+class VigiaViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val sessionStore  = SessionStore(application)
+    private val repository    = VigiaRepository(sessionStore)
+    private val filterStore   = AlarmFilterStore(application)
+
+    private val _loginState = MutableStateFlow(LoginState())
+    val loginState: StateFlow<LoginState> = _loginState.asStateFlow()
+
+    private val _dashboardState = MutableStateFlow(DashboardState())
+    val dashboardState: StateFlow<DashboardState> = _dashboardState.asStateFlow()
+
+    private val _isAuthenticated = MutableStateFlow(false)
+    val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
+
+    val alarmSettings = sessionStore.alarmSettingsFlow.stateIn(
+        viewModelScope, SharingStarted.Eagerly, SessionStore.AlarmSettings()
+    )
+    val sessionInfo = sessionStore.sessionFlow.stateIn(
+        viewModelScope, SharingStarted.Eagerly, SessionStore.Session()
+    )
+
+    init {
+        viewModelScope.launch {
+            val session = sessionStore.getSession()
+            if (session.isLoggedIn) {
+                _isAuthenticated.value = true
+                _loginState.update {
+                    it.copy(username = session.username, password = session.password, rememberMe = session.rememberMe)
                 }
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    // Silently fail - user can use password instead
-                }
-            })
-        val info = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Vigia Industrial")
-            .setSubtitle("Verificá tu identidad para continuar")
-            .setAllowedAuthenticators(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL
-            )
-            .build()
-        prompt.authenticate(info)
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(ZincBg)
-            .padding(24.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(0.dp)
-        ) {
-            Spacer(Modifier.height(32.dp))
-
-            // Logo
-            Box(
-                modifier = Modifier
-                    .size(72.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(RedPrimary),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Security,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(40.dp)
-                )
-            }
-
-            Spacer(Modifier.height(20.dp))
-
-            Text(
-                "VIGIA INDUSTRIAL",
-                color = ZincText,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 2.sp
-            )
-            Text(
-                "Monitoreo Industrial",
-                color = ZincMuted,
-                fontSize = 14.sp
-            )
-
-            Spacer(Modifier.height(40.dp))
-
-            // Card
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                color = ZincSurface,
-                border = BorderStroke(1.dp, ZincBorder)
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // Error banner
-                    AnimatedVisibility(
-                        visible = state.error != null,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut()
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = RedPrimary.copy(alpha = 0.1f),
-                            border = BorderStroke(1.dp, RedPrimary.copy(alpha = 0.3f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.Warning, null, tint = RedLight, modifier = Modifier.size(16.dp))
-                                Text(state.error ?: "", color = RedLight, fontSize = 13.sp)
-                            }
-                        }
-                    }
-
-                    // Username
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("USUARIO", color = ZincMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-                        OutlinedTextField(
-                            value = state.username,
-                            onValueChange = viewModel::onUsernameChange,
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("ej: tenant@thingsboard.org", color = ZincMuted, fontSize = 14.sp) },
-                            leadingIcon = { Icon(Icons.Default.Person, null, tint = ZincMuted) },
-                            shape = RoundedCornerShape(16.dp),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Email,
-                                imeAction = ImeAction.Next
-                            ),
-                            keyboardActions = KeyboardActions(
-                                onNext = { focusManager.moveFocus(FocusDirection.Down) }
-                            ),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = ZincText,
-                                unfocusedTextColor = ZincText,
-                                focusedBorderColor = RedPrimary,
-                                unfocusedBorderColor = ZincBorder,
-                                cursorColor = RedPrimary,
-                                focusedContainerColor = ZincCard,
-                                unfocusedContainerColor = ZincCard
-                            )
-                        )
-                    }
-
-                    // Password
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("CONTRASEÑA", color = ZincMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-                        OutlinedTextField(
-                            value = state.password,
-                            onValueChange = viewModel::onPasswordChange,
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("••••••••", color = ZincMuted) },
-                            leadingIcon = { Icon(Icons.Default.Lock, null, tint = ZincMuted) },
-                            trailingIcon = {
-                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                    Icon(
-                                        if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                        null, tint = ZincMuted
-                                    )
-                                }
-                            },
-                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            shape = RoundedCornerShape(16.dp),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Password,
-                                imeAction = ImeAction.Done
-                            ),
-                            keyboardActions = KeyboardActions(onDone = { viewModel.login() }),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = ZincText,
-                                unfocusedTextColor = ZincText,
-                                focusedBorderColor = RedPrimary,
-                                unfocusedBorderColor = ZincBorder,
-                                cursorColor = RedPrimary,
-                                focusedContainerColor = ZincCard,
-                                unfocusedContainerColor = ZincCard
-                            )
-                        )
-                    }
-
-                    // Remember me
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { viewModel.onRememberMeChange(!state.rememberMe) }
-                    ) {
-                        Checkbox(
-                            checked = state.rememberMe,
-                            onCheckedChange = viewModel::onRememberMeChange,
-                            colors = CheckboxDefaults.colors(
-                                checkedColor = RedPrimary,
-                                uncheckedColor = ZincBorder
-                            )
-                        )
-                        Text("Recordar credenciales", color = ZincTextMuted, fontSize = 14.sp)
-                    }
-
-                    Spacer(Modifier.height(4.dp))
-
-                    // Login button
-                    Button(
-                        onClick = { viewModel.login() },
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        enabled = !state.isLoading,
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = RedPrimary,
-                            disabledContainerColor = RedDark
-                        )
-                    ) {
-                        if (state.isLoading) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                        } else {
-                            Text("ENTRAR", fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = 14.sp)
-                            Spacer(Modifier.width(8.dp))
-                            Icon(Icons.Default.ChevronRight, null)
-                        }
-                    }
-
-                    // Biometric button
-                    if (canUseBiometrics && hasSavedCredentials) {
-                        OutlinedButton(
-                            onClick = { launchBiometric() },
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            border = BorderStroke(1.dp, ZincBorder),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ZincText)
-                        ) {
-                            Icon(Icons.Default.Fingerprint, null, tint = RedLight, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("DESBLOQUEO BIOMÉTRICO", fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 12.sp)
-                        }
-                    }
+                loadData()
+            } else if (session.rememberMe && session.username.isNotEmpty()) {
+                _loginState.update {
+                    it.copy(username = session.username, password = session.password, rememberMe = true)
                 }
             }
-
-            Spacer(Modifier.height(32.dp))
-
-            Text("www.cumuloingenieria.com.ar", color = ZincMuted, fontSize = 11.sp, textAlign = TextAlign.Center)
-            Text("ventas@cumuloingenieria.com.ar", color = ZincMuted, fontSize = 11.sp, textAlign = TextAlign.Center)
-
-            Spacer(Modifier.height(24.dp))
         }
+    }
+
+    fun onUsernameChange(v: String) = _loginState.update { it.copy(username = v, error = null) }
+    fun onPasswordChange(v: String) = _loginState.update { it.copy(password = v, error = null) }
+    fun onRememberMeChange(v: Boolean) = _loginState.update { it.copy(rememberMe = v) }
+
+    fun login() {
+        val state = _loginState.value
+        if (state.username.isBlank() || state.password.isBlank()) {
+            _loginState.update { it.copy(error = "Ingresá usuario y contraseña") }
+            return
+        }
+        viewModelScope.launch {
+            _loginState.update { it.copy(isLoading = true, error = null) }
+            when (val r = repository.login(state.username, state.password, state.rememberMe)) {
+                is Result.Success -> {
+                    _isAuthenticated.value = true
+                    loadData()
+                    // Registrar token FCM en ThingsBoard tras login exitoso
+                    registerFcmTokenIfNeeded()
+                }
+                is Result.Error   -> _loginState.update { it.copy(isLoading = false, error = ErrorTranslator.translate(r.message)) }
+                else -> {}
+            }
+            _loginState.update { it.copy(isLoading = false) }
+        }
+    }
+
+    fun logout() {
+        viewModelScope.launch {
+            repository.logout()
+            _isAuthenticated.value = false
+            _dashboardState.value = DashboardState()
+        }
+    }
+
+    fun loadData(isRefresh: Boolean = false) {
+        viewModelScope.launch {
+            _dashboardState.update {
+                if (isRefresh) it.copy(isRefreshing = true, error = null)
+                else it.copy(isLoading = it.alarms.isEmpty(), error = null)
+            }
+            // Cargar alarmas
+            launch {
+                when (val r = repository.getAlarms()) {
+                    is Result.Success -> {
+                        // Aplicar filtros de ocultamiento globales
+                        val filters = filterStore.getFilters()
+                        val filtered = r.data
+                            .filter { alarm ->
+                                filters.none { f ->
+                                    f.hidden && f.alarmType == alarm.type &&
+                                    alarm.originatorName.equals(f.deviceName, ignoreCase = true)
+                                }
+                            }
+                            .let { all ->
+                                // Separar activas y resueltas para no mezclar el límite
+                                val active  = all.filter { it.isActive && !it.isCleared }.take(MAX_ALARMS)
+                                val cleared = all.filter { it.isCleared }.take(MAX_ALARMS)
+                                (active + cleared).sortedByDescending { it.createdTime }
+                            }
+
+                        _dashboardState.update {
+                            it.copy(
+                                alarms       = filtered,
+                                isLoading    = false,
+                                isRefreshing = false,
+                                lastUpdated  = System.currentTimeMillis()
+                            )
+                        }
+                    }
+                    is Result.Error -> _dashboardState.update {
+                        it.copy(isLoading = false, isRefreshing = false, error = ErrorTranslator.translate(r.message))
+                    }
+                    else -> {}
+                }
+            }
+            // Cargar dispositivos
+            launch {
+                when (val r = repository.getDevices()) {
+                    is Result.Success -> _dashboardState.update { it.copy(devices = r.data) }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    fun acknowledgeAlarm(alarmId: String) {
+        viewModelScope.launch {
+            _dashboardState.update { state ->
+                state.copy(alarms = state.alarms.map { alarm ->
+                    if (alarm.id.id == alarmId) alarm.copy(status = alarm.status.replace("UNACK", "ACK"))
+                    else alarm
+                })
+            }
+            repository.acknowledgeAlarm(alarmId)
+            cancelNotification(alarmId)
+            loadData(isRefresh = true)
+        }
+    }
+
+    fun clearAlarm(alarmId: String) {
+        viewModelScope.launch {
+            _dashboardState.update { state ->
+                state.copy(alarms = state.alarms.map { alarm ->
+                    if (alarm.id.id == alarmId) alarm.copy(status = "CLEARED_ACK") else alarm
+                })
+            }
+            repository.clearAlarm(alarmId)
+            cancelNotification(alarmId)
+            loadData(isRefresh = true)
+        }
+    }
+
+    private fun cancelNotification(alarmId: String) {
+        val notifId = AlarmNotificationManager.NOTIF_ALARM_BASE_ID +
+            alarmId.hashCode().and(0x7FFFFFFF).rem(900)
+        (getApplication<Application>()
+            .getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .cancel(notifId)
+    }
+
+    fun registerFcmTokenIfNeeded() {
+        viewModelScope.launch {
+            try {
+                // Verificar si hay token pendiente de registrar
+                val pending = VigiaFirebaseService.getPendingToken(getApplication())
+                if (pending != null) {
+                    repository.registerFcmToken(pending)
+                    return@launch
+                }
+                // Obtener token FCM actual y registrarlo
+                FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                    viewModelScope.launch {
+                        repository.registerFcmToken(token)
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("VigiaViewModel", "FCM token registration error: ${e.message}")
+            }
+        }
+    }
+
+    fun updateAlarmSettings(vibrate: Boolean, sound: Boolean, wake: Boolean) {
+        viewModelScope.launch { sessionStore.saveAlarmSettings(vibrate, sound, wake) }
     }
 }

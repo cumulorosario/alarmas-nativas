@@ -1,228 +1,268 @@
 package com.cumulo.vigia.ui
 
-import android.app.Application
-import android.app.NotificationManager
-import android.content.Context
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
-import com.cumulo.vigia.data.VigiaRepository
-import com.cumulo.vigia.data.local.AlarmFilterStore
-import com.cumulo.vigia.data.local.SessionStore
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.cumulo.vigia.model.Alarm
 import com.cumulo.vigia.model.Device
-import com.cumulo.vigia.model.Result
-import com.cumulo.vigia.service.AlarmNotificationManager
-import com.cumulo.vigia.service.VigiaFirebaseService
-import com.google.firebase.messaging.FirebaseMessaging
-import com.cumulo.vigia.util.ErrorTranslator
-import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
+import com.cumulo.vigia.ui.theme.*
+import java.text.SimpleDateFormat
+import java.util.*
 
-data class LoginState(
-    val username: String = "",
-    val password: String = "",
-    val rememberMe: Boolean = false,
-    val isLoading: Boolean = false,
-    val error: String? = null
-)
-
-data class DashboardState(
-    val alarms: List<Alarm> = emptyList(),
-    val devices: List<Device> = emptyList(),
-    val isLoading: Boolean = false,
-    val isRefreshing: Boolean = false,
-    val error: String? = null,
-    val lastUpdated: Long = 0L
-) {
-    val activeAlarms  get() = alarms.filter { it.isActive && !it.isCleared }
-    val pendingAlarms get() = alarms.filter { !it.isCleared && (it.isActive || !it.isAcknowledged) }
-    val onlineDevices get() = devices.count { it.online }
-    val criticalCount get() = activeAlarms.count { it.isCritical }
+@Composable
+fun SeverityBadge(severity: String) {
+    val color = severityColor(severity)
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = color.copy(alpha = 0.15f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.4f))
+    ) {
+        Text(
+            severity,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            color = color,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.sp
+        )
+    }
 }
 
-private const val MAX_ALARMS = 20
+@Composable
+fun StatusBadge(status: String, displayStatus: String) {
+    val color = when (status) {
+        "ACTIVE_UNACK"  -> CriticalColor
+        "ACTIVE_ACK"    -> OrangeAlert
+        "CLEARED_UNACK" -> EmeraldGreen
+        "CLEARED_ACK"   -> EmeraldGreen
+        else            -> ZincMuted
+    }
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = color.copy(alpha = if (status == "ACTIVE_UNACK") 0.9f else 0.15f)
+    ) {
+        Text(
+            displayStatus,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            color = if (status == "ACTIVE_UNACK") Color.White else color,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.sp
+        )
+    }
+}
 
-class VigiaViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val sessionStore  = SessionStore(application)
-    private val repository    = VigiaRepository(sessionStore)
-    private val filterStore   = AlarmFilterStore(application)
-
-    private val _loginState = MutableStateFlow(LoginState())
-    val loginState: StateFlow<LoginState> = _loginState.asStateFlow()
-
-    private val _dashboardState = MutableStateFlow(DashboardState())
-    val dashboardState: StateFlow<DashboardState> = _dashboardState.asStateFlow()
-
-    private val _isAuthenticated = MutableStateFlow(false)
-    val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
-
-    val alarmSettings = sessionStore.alarmSettingsFlow.stateIn(
-        viewModelScope, SharingStarted.Eagerly, SessionStore.AlarmSettings()
-    )
-    val sessionInfo = sessionStore.sessionFlow.stateIn(
-        viewModelScope, SharingStarted.Eagerly, SessionStore.Session()
-    )
-
-    init {
-        viewModelScope.launch {
-            val session = sessionStore.getSession()
-            if (session.isLoggedIn) {
-                _isAuthenticated.value = true
-                _loginState.update {
-                    it.copy(username = session.username, password = session.password, rememberMe = session.rememberMe)
-                }
-                loadData()
-            } else if (session.rememberMe && session.username.isNotEmpty()) {
-                _loginState.update {
-                    it.copy(username = session.username, password = session.password, rememberMe = true)
-                }
-            }
-        }
+@Composable
+fun AlarmCard(
+    alarm: Alarm,
+    onAck: (String) -> Unit,
+    onClear: (String) -> Unit
+) {
+    val borderColor = when {
+        alarm.isCleared                  -> EmeraldGreen.copy(alpha = 0.4f)
+        alarm.severity == "CRITICAL"     -> CriticalColor.copy(alpha = 0.6f)
+        alarm.severity == "MAJOR"        -> OrangeAlert.copy(alpha = 0.5f)
+        else                             -> ZincBorder
+    }
+    val bgColor = when {
+        alarm.isCleared                  -> ZincCard.copy(alpha = 0.4f)
+        alarm.severity == "CRITICAL"     -> CriticalColor.copy(alpha = 0.05f)
+        else                             -> ZincCard
     }
 
-    fun onUsernameChange(v: String) = _loginState.update { it.copy(username = v, error = null) }
-    fun onPasswordChange(v: String) = _loginState.update { it.copy(password = v, error = null) }
-    fun onRememberMeChange(v: Boolean) = _loginState.update { it.copy(rememberMe = v) }
-
-    fun login() {
-        val state = _loginState.value
-        if (state.username.isBlank() || state.password.isBlank()) {
-            _loginState.update { it.copy(error = "Ingresá usuario y contraseña") }
-            return
-        }
-        viewModelScope.launch {
-            _loginState.update { it.copy(isLoading = true, error = null) }
-            when (val r = repository.login(state.username, state.password, state.rememberMe)) {
-                is Result.Success -> {
-                    _isAuthenticated.value = true
-                    loadData()
-                    // Registrar token FCM en ThingsBoard tras login exitoso
-                    registerFcmTokenIfNeeded()
-                }
-                is Result.Error   -> _loginState.update { it.copy(isLoading = false, error = ErrorTranslator.translate(r.message)) }
-                else -> {}
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = bgColor,
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header row: severity + status + timestamp
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SeverityBadge(alarm.severity)
+                StatusBadge(alarm.status, alarm.displayStatus())
+                Spacer(Modifier.weight(1f))
+                Text(
+                    formatTimestamp(alarm.createdTime),
+                    color = ZincMuted,
+                    fontSize = 11.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                )
             }
-            _loginState.update { it.copy(isLoading = false) }
-        }
-    }
 
-    fun logout() {
-        viewModelScope.launch {
-            repository.logout()
-            _isAuthenticated.value = false
-            _dashboardState.value = DashboardState()
-        }
-    }
+            Spacer(Modifier.height(8.dp))
 
-    fun loadData(isRefresh: Boolean = false) {
-        viewModelScope.launch {
-            _dashboardState.update {
-                if (isRefresh) it.copy(isRefreshing = true, error = null)
-                else it.copy(isLoading = it.alarms.isEmpty(), error = null)
+            Text(
+                alarm.displayType(),
+                color = if (alarm.isCleared) ZincTextMuted else ZincText,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(Icons.Default.Memory, null, tint = ZincMuted, modifier = Modifier.size(14.dp))
+                Text(alarm.originatorName, color = ZincTextMuted, fontSize = 13.sp)
             }
-            // Cargar alarmas
-            launch {
-                when (val r = repository.getAlarms()) {
-                    is Result.Success -> {
-                        // Aplicar filtros de ocultamiento globales
-                        val filters = filterStore.getFilters()
-                        val filtered = r.data
-                            .filter { alarm ->
-                                filters.none { f ->
-                                    f.hidden && f.alarmType == alarm.type &&
-                                    alarm.originatorName.equals(f.deviceName, ignoreCase = true)
-                                }
-                            }
-                            .let { all ->
-                                // Separar activas y resueltas para no mezclar el límite
-                                val active  = all.filter { it.isActive && !it.isCleared }.take(MAX_ALARMS)
-                                val cleared = all.filter { it.isCleared }.take(MAX_ALARMS)
-                                (active + cleared).sortedByDescending { it.createdTime }
-                            }
 
-                        _dashboardState.update {
-                            it.copy(
-                                alarms       = filtered,
-                                isLoading    = false,
-                                isRefreshing = false,
-                                lastUpdated  = System.currentTimeMillis()
-                            )
-                        }
-                    }
-                    is Result.Error -> _dashboardState.update {
-                        it.copy(isLoading = false, isRefreshing = false, error = ErrorTranslator.translate(r.message))
-                    }
-                    else -> {}
-                }
-            }
-            // Cargar dispositivos
-            launch {
-                when (val r = repository.getDevices()) {
-                    is Result.Success -> _dashboardState.update { it.copy(devices = r.data) }
-                    else -> {}
-                }
-            }
-        }
-    }
+            Spacer(Modifier.height(12.dp))
 
-    fun acknowledgeAlarm(alarmId: String) {
-        viewModelScope.launch {
-            _dashboardState.update { state ->
-                state.copy(alarms = state.alarms.map { alarm ->
-                    if (alarm.id.id == alarmId) alarm.copy(status = alarm.status.replace("UNACK", "ACK"))
-                    else alarm
-                })
-            }
-            repository.acknowledgeAlarm(alarmId)
-            cancelNotification(alarmId)
-            loadData(isRefresh = true)
-        }
-    }
-
-    fun clearAlarm(alarmId: String) {
-        viewModelScope.launch {
-            _dashboardState.update { state ->
-                state.copy(alarms = state.alarms.map { alarm ->
-                    if (alarm.id.id == alarmId) alarm.copy(status = "CLEARED_ACK") else alarm
-                })
-            }
-            repository.clearAlarm(alarmId)
-            cancelNotification(alarmId)
-            loadData(isRefresh = true)
-        }
-    }
-
-    private fun cancelNotification(alarmId: String) {
-        val notifId = AlarmNotificationManager.NOTIF_ALARM_BASE_ID +
-            alarmId.hashCode().and(0x7FFFFFFF).rem(900)
-        (getApplication<Application>()
-            .getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-            .cancel(notifId)
-    }
-
-    fun registerFcmTokenIfNeeded() {
-        viewModelScope.launch {
-            try {
-                // Verificar si hay token pendiente de registrar
-                val pending = VigiaFirebaseService.getPendingToken(getApplication())
-                if (pending != null) {
-                    repository.registerFcmToken(pending)
-                    return@launch
-                }
-                // Obtener token FCM actual y registrarlo
-                FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
-                    viewModelScope.launch {
-                        repository.registerFcmToken(token)
+            // Action buttons — logic:
+            // ACTIVE + UNACK  → solo "RECONOCER" (también silencia la notificación)
+            // ACTIVE + ACK    → solo "Resolver"
+            // CLEARED         → badge "Cerrada"
+            when {
+                alarm.isActive && !alarm.isAcknowledged -> {
+                    Button(
+                        onClick = { onAck(alarm.id.id) },
+                        modifier = Modifier.fillMaxWidth().height(40.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CriticalColor)
+                    ) {
+                        Icon(Icons.Default.NotificationsOff, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("RECONOCER Y SILENCIAR", fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                     }
                 }
-            } catch (e: Exception) {
-                android.util.Log.w("VigiaViewModel", "FCM token registration error: ${e.message}")
+                alarm.isActive && alarm.isAcknowledged -> {
+                    Button(
+                        onClick = { onClear(alarm.id.id) },
+                        modifier = Modifier.fillMaxWidth().height(40.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen.copy(alpha = 0.15f))
+                    ) {
+                        Icon(Icons.Default.CheckCircle, null, tint = EmeraldGreen, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Resolver", color = EmeraldGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                else -> {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Default.CheckCircle, null, tint = EmeraldGreen, modifier = Modifier.size(16.dp))
+                        Text("Cerrada", color = EmeraldGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
+}
 
-    fun updateAlarmSettings(vibrate: Boolean, sound: Boolean, wake: Boolean) {
-        viewModelScope.launch { sessionStore.saveAlarmSettings(vibrate, sound, wake) }
+@Composable
+fun DeviceCard(
+    device: Device,
+    onClick: (() -> Unit)? = null
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = ZincCard,
+        border = BorderStroke(1.dp, ZincBorder),
+        onClick = onClick ?: {}
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(ZincBorder.copy(alpha = 0.5f), RoundedCornerShape(14.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Memory, null, tint = ZincMuted, modifier = Modifier.size(24.dp))
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(device.name, color = ZincText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(device.type.uppercase(), color = ZincMuted, fontSize = 10.sp, letterSpacing = 1.sp)
+            }
+
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(
+                            if (device.online) EmeraldGreen else ZincBorder,
+                            CircleShape
+                        )
+                )
+                Text(
+                    if (device.online) "ONLINE" else "OFFLINE",
+                    color = if (device.online) EmeraldGreen else ZincMuted,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.sp
+                )
+                if (onClick != null) {
+                    Icon(Icons.Default.ChevronRight, null, tint = ZincMuted, modifier = Modifier.size(16.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StatCard(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    iconColor: Color,
+    onClick: (() -> Unit)? = null
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().fillMaxHeight(),
+        shape = RoundedCornerShape(20.dp),
+        color = ZincCard,
+        border = BorderStroke(1.dp, ZincBorder),
+        onClick = onClick ?: {}
+    ) {
+        Column(modifier = Modifier.padding(20.dp).fillMaxHeight()) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(iconColor.copy(alpha = 0.15f), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, null, tint = iconColor, modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.height(16.dp))
+            Text(label, color = ZincMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text(value, color = ZincText, fontSize = 28.sp, fontWeight = FontWeight.Black)
+        }
+    }
+}
+
+fun formatTimestamp(ts: Long): String {
+    return try {
+        val sdf = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault())
+        sdf.format(Date(ts))
+    } catch (e: Exception) {
+        "—"
     }
 }

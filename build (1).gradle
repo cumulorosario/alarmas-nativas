@@ -1,43 +1,96 @@
-@rem Gradle startup script for Windows
+# Vigia Industrial — App Android Nativa
 
-@if "%DEBUG%"=="" @echo off
-@rem Set local scope for the variables with windows NT shell
-if "%OS%"=="Windows_NT" setlocal
+App Android 100% nativa en **Kotlin + Jetpack Compose**. Sin WebView, sin Capacitor.
 
-set DIRNAME=%~dp0
-if "%DIRNAME%"=="" set DIRNAME=.
-@rem This is normally unused
-set APP_BASE_NAME=%~n0
-set APP_HOME=%DIRNAME%
+---
 
-@rem Resolve any "." and ".." in APP_HOME to make it shorter.
-for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
+## ¿Qué hace?
 
-@rem Add default JVM options here.
-set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
+- **Login** con usuario/contraseña ThingsBoard + biometría (huella/rostro)
+- **Dashboard** con resumen de alarmas activas y dispositivos online
+- **Pantalla de Alarmas** con filtros (Todas / Activas / Resueltas), reconocer y resolver
+- **Pantalla de Dispositivos** con estado online/offline en tiempo real
+- **Servicio en segundo plano** que consulta ThingsBoard cada 15 segundos
+- **Arranca con el teléfono** automáticamente (BOOT_COMPLETED)
+- **Alertas de pantalla completa** sobre la pantalla de bloqueo cuando hay alarma crítica
+- **Notificaciones críticas** con botones para reconocer/resolver directamente
 
-@rem Find java.exe
-if defined JAVA_HOME goto findJavaFromJavaHome
-set JAVA_EXE=java.exe
-goto execute
+---
 
-:findJavaFromJavaHome
-set JAVA_HOME=%JAVA_HOME:"=%
-set JAVA_EXE=%JAVA_HOME%/bin/java.exe
-if exist "%JAVA_EXE%" goto execute
-echo. 1>&2
-echo ERROR: JAVA_HOME is set to an invalid directory: %JAVA_HOME% 1>&2
-exit /b 1
+## Cómo subir a GitHub y compilar con Codemagic
 
-:execute
-@rem Setup the command line
-set CLASSPATH=%APP_HOME%\gradle\wrapper\gradle-wrapper.jar
+### 1. Subir el proyecto a GitHub
 
-@rem Execute Gradle
-"%JAVA_EXE%" %DEFAULT_JVM_OPTS% %JAVA_OPTS% %GRADLE_OPTS% "-Dorg.gradle.appname=%APP_BASE_NAME%" -classpath "%CLASSPATH%" org.gradle.wrapper.GradleWrapperMain %*
+```bash
+git init
+git add .
+git commit -m "feat: app Android nativa Vigia Industrial"
+git remote add origin https://github.com/TU_USUARIO/vigia-android.git
+git push -u origin main
+```
 
-:end
-if "%ERRORLEVEL%"=="0" goto mainEnd
-exit 1
-:mainEnd
-if "%OS%"=="Windows_NT" endlocal
+### 2. Conectar Codemagic
+
+1. Ir a [codemagic.io](https://codemagic.io) → **Add application**
+2. Conectar tu cuenta de GitHub y seleccionar el repositorio
+3. Codemagic detecta el `codemagic.yaml` automáticamente
+4. Ejecutar el workflow **"Vigia Industrial — Android Nativo (Debug APK)"**
+5. Cuando termine, el APK llega por email a `cumulorosario@gmail.com`
+
+### 3. Instalar el APK en el teléfono
+
+1. Activar **"Instalar apps de origen desconocido"** en Ajustes del teléfono
+2. Abrir el APK del email e instalar
+
+---
+
+## Ajustes importantes en el teléfono tras instalar
+
+Para que las alarmas funcionen aunque el teléfono esté bloqueado:
+
+| Ajuste | Valor |
+|--------|-------|
+| Inicio automático | ✅ Activado |
+| Optimización de batería | Sin restricciones |
+| Apps en recientes | Bloquear con candado |
+
+La app incluye un botón en **Ajustes → Servicio en segundo plano** que abre directamente la pantalla de batería del sistema.
+
+---
+
+## Estructura del proyecto
+
+```
+app/src/main/java/com/cumulo/vigia/
+├── VigiaApplication.kt          # App class, inicia el servicio
+├── model/
+│   └── Models.kt                # Alarm, Device, AuthResponse, etc.
+├── data/
+│   ├── api/ThingsBoardApi.kt    # HTTP client (OkHttp)
+│   ├── local/SessionStore.kt    # Credenciales persistentes (DataStore)
+│   └── VigiaRepository.kt      # Lógica de negocio
+├── service/
+│   ├── AlarmPollingService.kt   # Foreground service — polling c/15s
+│   ├── AlarmNotificationManager.kt  # Notificaciones críticas
+│   ├── BootReceiver.kt          # Arranca con el teléfono
+│   └── AlarmActionReceiver.kt   # Reconocer/resolver desde notificación
+└── ui/
+    ├── MainActivity.kt          # Nav host + bottom bar
+    ├── VigiaViewModel.kt        # Estado global
+    ├── Components.kt            # AlarmCard, DeviceCard, StatCard
+    ├── AlarmFullScreenActivity.kt  # Pantalla de alarma sobre lock screen
+    ├── theme/Theme.kt           # Colores industriales dark
+    ├── login/LoginScreen.kt
+    ├── dashboard/DashboardScreen.kt
+    ├── alarms/AlarmsScreen.kt
+    ├── devices/DevicesScreen.kt
+    └── settings/SettingsScreen.kt
+```
+
+---
+
+## Servidor ThingsBoard configurado
+
+URL por defecto: `http://cumuloingenieria.duckdns.org:9090`
+
+Se puede cambiar en el código → `SessionStore.kt` → `DEFAULT_BASE_URL`

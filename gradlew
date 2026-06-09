@@ -1,5 +1,76 @@
-plugins {
-    id 'com.android.application' version '8.2.2' apply false
-    id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
-    id 'com.google.gms.google-services' version '4.4.1' apply false
-}
+workflows:
+  android-native-debug:
+    name: Vigia Industrial — Debug APK
+    max_build_duration: 60
+    instance_type: mac_mini_m1
+
+    environment:
+      java: 17
+
+    scripts:
+      - name: Set permissions on Gradle wrapper
+        script: chmod +x gradlew
+
+      - name: Remove junk files
+        script: |
+          find . -name "desktop.ini" -delete
+          find . -name "Thumbs.db" -delete
+          find . -name ".DS_Store" -delete
+          rm -rf app/src/main/res/values-v27
+          echo "Cleanup done"
+
+      - name: Build Debug APK
+        script: |
+          ./gradlew assembleDebug \
+            -Dorg.gradle.jvmargs="-Xmx2g" \
+            --no-daemon \
+            --stacktrace
+
+    artifacts:
+      - app/build/outputs/apk/debug/*.apk
+
+    publishing:
+      email:
+        recipients:
+          - cumulorosario@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  android-native-release:
+    name: Vigia Industrial — Release AAB
+    max_build_duration: 60
+    instance_type: mac_mini_m1
+
+    environment:
+      java: 17
+
+    scripts:
+      - name: Set permissions on Gradle wrapper
+        script: chmod +x gradlew
+
+      - name: Remove junk files
+        script: |
+          find . -name "desktop.ini" -delete
+          find . -name "Thumbs.db" -delete
+          find . -name ".DS_Store" -delete
+          rm -rf app/src/main/res/values-v27
+          echo "Cleanup done"
+
+      - name: Build Release AAB
+        script: |
+          ./gradlew bundleRelease \
+            -Dorg.gradle.jvmargs="-Xmx2g" \
+            --no-daemon \
+            --stacktrace
+
+    artifacts:
+      - app/build/outputs/bundle/release/*.aab
+
+    publishing:
+      email:
+        recipients:
+          - cumulorosario@gmail.com
+        notify:
+          success: true
+          failure: true

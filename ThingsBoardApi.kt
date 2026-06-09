@@ -1,17 +1,16 @@
 package com.cumulo.vigia.ui
 
-import android.app.NotificationManager
-import android.content.Context
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -19,192 +18,165 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.cumulo.vigia.data.VigiaRepository
-import com.cumulo.vigia.data.local.SessionStore
-import com.cumulo.vigia.service.AlarmNotificationManager
+import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.navigation.NavDestination.Companion.hierarchy
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.compose.*
+import com.cumulo.vigia.service.AlarmPollingService
+import com.cumulo.vigia.ui.alarms.AlarmsScreen
+import com.cumulo.vigia.ui.dashboard.DashboardScreen
+import com.cumulo.vigia.ui.devices.DevicesScreen
+import com.cumulo.vigia.ui.login.LoginScreen
+import com.cumulo.vigia.ui.settings.SettingsScreen
 import com.cumulo.vigia.ui.theme.*
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
-class AlarmFullScreenActivity : ComponentActivity() {
+sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
+    object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Dashboard)
+    object Alarms    : Screen("alarms", "Alertas", Icons.Default.Notifications)
+    object Devices   : Screen("devices", "Dispositivos", Icons.Default.Memory)
+    object Settings  : Screen("settings", "Ajustes", Icons.Default.Settings)
+}
+
+val bottomNavItems = listOf(Screen.Dashboard, Screen.Alarms, Screen.Devices, Screen.Settings)
+
+class MainActivity : ComponentActivity() {
+
+    private val viewModel: VigiaViewModel by viewModels()
+
+    private val notifPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* handled silently */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true)
-            setTurnScreenOn(true)
-        } else {
-            @Suppress("DEPRECATION")
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
-            )
-        }
-
-        val alarmId       = intent.getStringExtra(AlarmNotificationManager.EXTRA_ALARM_ID) ?: ""
-        val alarmName     = intent.getStringExtra(AlarmNotificationManager.EXTRA_ALARM_NAME) ?: "Dispositivo"
-        val alarmType     = intent.getStringExtra(AlarmNotificationManager.EXTRA_ALARM_TYPE) ?: "Alarma"
-        val alarmSeverity = intent.getStringExtra(AlarmNotificationManager.EXTRA_ALARM_SEVERITY) ?: "CRITICAL"
-
-        val repository = VigiaRepository(SessionStore(applicationContext))
-
-        fun cancelNotification() {
-            val notifId = AlarmNotificationManager.NOTIF_ALARM_BASE_ID +
-                alarmId.hashCode().and(0x7FFFFFFF).rem(900)
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(notifId)
-        }
+        requestNotificationPermission()
+        startPollingService()
 
         setContent {
             VigiaTheme {
-                FullScreenAlarmContent(
-                    alarmId = alarmId,
-                    deviceName = alarmName,
-                    alarmType = alarmType,
-                    severity = alarmSeverity,
-                    // Reconocer = silenciar notificación + cerrar pantalla
-                    onAck = { id ->
-                        CoroutineScope(Dispatchers.IO).launch { repository.acknowledgeAlarm(id) }
-                        cancelNotification()
-                        finish()
-                    },
-                    // Resolver = cerrar alarma + silenciar + cerrar pantalla
-                    onClear = { id ->
-                        CoroutineScope(Dispatchers.IO).launch { repository.clearAlarm(id) }
-                        cancelNotification()
-                        finish()
-                    }
+                VigiaApp(viewModel)
+            }
+        }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    private fun startPollingService() {
+        val intent = Intent(this, AlarmPollingService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }
+}
+
+@Composable
+fun VigiaApp(viewModel: VigiaViewModel) {
+    val isAuthenticated by viewModel.isAuthenticated.collectAsState()
+    val state by viewModel.dashboardState.collectAsState()
+    val navController = rememberNavController()
+
+    // Auto refresh every 15s when authenticated
+    LaunchedEffect(isAuthenticated) {
+        if (isAuthenticated) {
+            while (true) {
+                kotlinx.coroutines.delay(15_000)
+                viewModel.loadData(isRefresh = true)
+            }
+        }
+    }
+
+    if (!isAuthenticated) {
+        LoginScreen(viewModel)
+        return
+    }
+
+    Scaffold(
+        containerColor = ZincBg,
+        bottomBar = {
+            NavigationBar(
+                containerColor = ZincSurface,
+                tonalElevation = 0.dp
+            ) {
+                val navBackStackEntry by navController.currentBackStackEntryAsState()
+                val currentDestination = navBackStackEntry?.destination
+
+                bottomNavItems.forEach { screen ->
+                    val selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true
+                    val activeAlarmCount = state.activeAlarms.size
+
+                    NavigationBarItem(
+                        selected = selected,
+                        onClick = {
+                            navController.navigate(screen.route) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        icon = {
+                            if (screen is Screen.Alarms && activeAlarmCount > 0) {
+                                BadgedBox(badge = {
+                                    Badge(containerColor = CriticalColor) {
+                                        Text(
+                                            if (activeAlarmCount > 9) "9+" else activeAlarmCount.toString(),
+                                            color = Color.White,
+                                            fontSize = 9.sp
+                                        )
+                                    }
+                                }) {
+                                    Icon(screen.icon, contentDescription = screen.label)
+                                }
+                            } else {
+                                Icon(screen.icon, contentDescription = screen.label)
+                            }
+                        },
+                        label = {
+                            Text(screen.label, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = RedPrimary,
+                            selectedTextColor = RedPrimary,
+                            unselectedIconColor = ZincMuted,
+                            unselectedTextColor = ZincMuted,
+                            indicatorColor = RedPrimary.copy(alpha = 0.1f)
+                        )
+                    )
+                }
+            }
+        }
+    ) { paddingValues ->
+        NavHost(
+            navController = navController,
+            startDestination = Screen.Dashboard.route,
+            modifier = Modifier.padding(paddingValues)
+        ) {
+            composable(Screen.Dashboard.route) {
+                DashboardScreen(
+                    viewModel = viewModel,
+                    onNavigateToAlarms = { navController.navigate(Screen.Alarms.route) },
+                    onNavigateToDevices = { navController.navigate(Screen.Devices.route) }
                 )
             }
+            composable(Screen.Alarms.route) { AlarmsScreen(viewModel) }
+            composable(Screen.Devices.route) { DevicesScreen(viewModel) }
+            composable(Screen.Settings.route) { SettingsScreen(viewModel) }
         }
-    }
-}
-
-@Composable
-fun FullScreenAlarmContent(
-    alarmId: String,
-    deviceName: String,
-    alarmType: String,
-    severity: String,
-    onAck: (String) -> Unit,
-    onClear: (String) -> Unit
-) {
-    val pulseAnim = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by pulseAnim.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "scale"
-    )
-
-    val isCritical = severity == "CRITICAL" || severity == "MAJOR"
-    val primaryColor = severityColor(severity)
-
-    Box(
-        modifier = Modifier.fillMaxSize().background(ZincBg),
-        contentAlignment = Alignment.Center
-    ) {
-        Box(modifier = Modifier.fillMaxSize().background(primaryColor.copy(alpha = 0.08f)))
-
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
-            Spacer(Modifier.height(32.dp))
-
-            // Pulsing icon
-            Box(
-                modifier = Modifier
-                    .size(100.dp)
-                    .scale(if (isCritical) pulseScale else 1f)
-                    .background(primaryColor.copy(alpha = 0.15f), CircleShape)
-                    .border(2.dp, primaryColor.copy(alpha = 0.4f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.Warning, null, tint = primaryColor, modifier = Modifier.size(52.dp))
-            }
-
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("ALARMA ${severity.uppercase()}", color = primaryColor, fontSize = 13.sp,
-                    fontWeight = FontWeight.Black, letterSpacing = 3.sp)
-                Spacer(Modifier.height(8.dp))
-                Text("DETECTADA", color = ZincText, fontSize = 36.sp,
-                    fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
-            }
-
-            // Detail card
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                color = ZincCard,
-                border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.3f))
-            ) {
-                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    DetailRow("Tipo", alarmType)
-                    HorizontalDivider(color = ZincBorder)
-                    DetailRow("Dispositivo", deviceName)
-                    HorizontalDivider(color = ZincBorder)
-                    DetailRow("Severidad", severity)
-                }
-            }
-
-            Spacer(Modifier.weight(1f))
-
-            // Buttons — sin "Silenciar": Reconocer ya silencia
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                // RECONOCER Y SILENCIAR — acción principal
-                Button(
-                    onClick = { onAck(alarmId) },
-                    modifier = Modifier.fillMaxWidth().height(60.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
-                ) {
-                    Icon(Icons.Default.NotificationsOff, null, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("RECONOCER Y SILENCIAR", fontWeight = FontWeight.Black, fontSize = 15.sp, letterSpacing = 1.sp)
-                }
-
-                // RESOLVER — acción secundaria
-                OutlinedButton(
-                    onClick = { onClear(alarmId) },
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, EmeraldGreen.copy(alpha = 0.6f)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = EmeraldGreen)
-                ) {
-                    Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Resolver alarma", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                }
-            }
-
-            Spacer(Modifier.height(24.dp))
-        }
-    }
-}
-
-@Composable
-fun DetailRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, color = ZincMuted, fontSize = 13.sp)
-        Text(value, color = ZincText, fontSize = 14.sp, fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.End, modifier = Modifier.weight(1f, fill = false))
     }
 }
