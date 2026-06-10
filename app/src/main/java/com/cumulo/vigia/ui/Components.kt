@@ -1,6 +1,5 @@
 package com.cumulo.vigia.ui
 
-import android.content.Intent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -10,7 +9,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -74,7 +72,6 @@ fun AlarmCard(
     onAck: (String) -> Unit,
     onClear: (String) -> Unit
 ) {
-    val context = LocalContext.current
     val borderColor = when {
         alarm.isCleared                  -> EmeraldGreen.copy(alpha = 0.4f)
         alarm.severity == "CRITICAL"     -> CriticalColor.copy(alpha = 0.6f)
@@ -169,52 +166,6 @@ fun AlarmCard(
                         Text("Cerrada", color = EmeraldGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
-            }
-
-            // Botón compartir — visible para alarmas activas y resueltas
-            Spacer(Modifier.height(8.dp))
-            TextButton(
-                onClick = {
-                    val emoji = when (alarm.severity) {
-                        "CRITICAL"      -> "🚨"
-                        "MAJOR"         -> "⚠️"
-                        "MINOR"         -> "ℹ️"
-                        "WARNING"       -> "⚡"
-                        else            -> "🔔"
-                    }
-                    val estadoTexto = when {
-                        alarm.isCleared     -> "✅ RESUELTA"
-                        alarm.isAcknowledged -> "👁 RECONOCIDA"
-                        alarm.isActive       -> "🔴 ACTIVA"
-                        else                 -> alarm.displayStatus()
-                    }
-                    val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
-                    val fecha = sdf.format(Date(alarm.createdTime))
-                    val text = buildString {
-                        appendLine("$emoji ALARMA ${alarm.severity}")
-                        appendLine("━━━━━━━━━━━━━━━━━━")
-                        appendLine("Dispositivo: ${alarm.originatorName}")
-                        appendLine("Tipo: ${alarm.displayType()}")
-                        appendLine("Estado: $estadoTexto")
-                        appendLine("Fecha: $fecha")
-                        appendLine("━━━━━━━━━━━━━━━━━━")
-                        appendLine("Vigia Industrial — Cumulo Ingeniería")
-                        appendLine("www.cumuloingenieria.com.ar")
-                    }
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, text)
-                        putExtra(Intent.EXTRA_SUBJECT,
-                            "Alarma ${alarm.severity}: ${alarm.originatorName}")
-                    }
-                    context.startActivity(Intent.createChooser(intent, "Compartir alarma"))
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Share, null,
-                    tint = ZincMuted, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Compartir", color = ZincMuted, fontSize = 12.sp)
             }
         }
     }
