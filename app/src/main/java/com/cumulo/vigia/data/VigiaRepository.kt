@@ -136,16 +136,18 @@ class VigiaRepository(private val sessionStore: SessionStore) {
                 val tbApi = api(baseUrl, token)
                 val result = mutableListOf<Alarm>()
 
-                // ThingsBoard CE filtra automáticamente según el token:
-                // - TENANT_ADMIN → ve todas las alarmas del tenant
-                // - CUSTOMER_USER → ve solo las alarmas de su customer
-                // No necesitamos lógica adicional — el servidor hace el filtrado
-                result.addAll(tbApi.getAlarms(100))
+                // Estrategia 1: endpoint general — funciona para TENANT_ADMIN en CE
+                // Para CUSTOMER_USER puede devolver 403 (silencioso) → usamos fallback
+                try {
+                    result.addAll(tbApi.getAlarms(100))
+                } catch (e: Exception) {
+                    Log.w(TAG, "getAlarms falló: ${e.message}")
+                }
 
-                // Fallback por dispositivo si hay muy pocas alarmas
-                // (útil cuando el endpoint general no devuelve suficientes datos)
-                if (result.size < 3) {
-                    val devices = tbApi.getDevices(30)
+                // Estrategia 2: por dispositivo — funciona para TODOS los tipos de usuario en CE
+                // Siempre ejecutar para asegurar cobertura completa
+                val devices = try { tbApi.getDevices(30) } catch (e: Exception) { emptyList() }
+                if (devices.isNotEmpty()) {
                     coroutineScope {
                         devices.map { d -> async { tbApi.getAlarmsByDevice(d.id.id) } }
                             .map { it.await() }
