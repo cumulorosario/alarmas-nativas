@@ -136,32 +136,41 @@ class VigiaRepository(private val sessionStore: SessionStore) {
                 val tbApi = api(baseUrl, token)
                 val result = mutableListOf<Alarm>()
 
-                // Estrategia 1: endpoint general (el más completo)
-                result.addAll(tbApi.getAlarms(100))
+                val NULL_CID = "13814000-1dd2-11b2-8080-808080808080"
+                val isTenantAdmin = session.authority == "TENANT_ADMIN" || session.authority == "SYS_ADMIN"
+                val hasRealCustomer = session.customerId.isNotEmpty() && session.customerId != NULL_CID
 
-                // Estrategia 2: por tenant (lanza 401 si el token es inválido)
-                if (session.tenantId.isNotEmpty()) {
-                    tbApi.getAlarmsByTenant(session.tenantId, 100).forEach { a ->
-                        if (result.none { it.id.id == a.id.id }) result.add(a)
+                // TENANT_ADMIN y SYS_ADMIN: ven todas las alarmas del tenant
+                // CUSTOMER_USER: ve solo las alarmas de su customer
+                if (isTenantAdmin) {
+                    // Endpoint general — devuelve todas las alarmas del tenant
+                    result.addAll(tbApi.getAlarms(100))
+
+                    // También por tenant para asegurar cobertura completa
+                    if (session.tenantId.isNotEmpty()) {
+                        tbApi.getAlarmsByTenant(session.tenantId, 100).forEach { a ->
+                            if (result.none { it.id.id == a.id.id }) result.add(a)
+                        }
                     }
-                }
-
-                // Estrategia 3: por customer
-                if (session.customerId.isNotEmpty()) {
+                } else if (hasRealCustomer) {
+                    // Customer user: solo sus alarmas
                     tbApi.getAlarmsByCustomer(session.customerId, 100).forEach { a ->
-                        if (result.none { it.id.id == a.id.id }) result.add(a)
+                        result.add(a)
                     }
-                }
 
-                // Estrategia 4: por dispositivo (solo si hay pocas alarmas)
-                if (result.size < 5) {
-                    val devices = tbApi.getDevices(30)
-                    coroutineScope {
-                        devices.map { d -> async { tbApi.getAlarmsByDevice(d.id.id) } }
-                            .map { it.await() }
-                    }.flatten().forEach { a ->
-                        if (result.none { it.id.id == a.id.id }) result.add(a)
+                    // Fallback por dispositivo si hay pocas alarmas
+                    if (result.size < 5) {
+                        val devices = tbApi.getDevices(30)
+                        coroutineScope {
+                            devices.map { d -> async { tbApi.getAlarmsByDevice(d.id.id) } }
+                                .map { it.await() }
+                        }.flatten().forEach { a ->
+                            if (result.none { it.id.id == a.id.id }) result.add(a)
+                        }
                     }
+                } else {
+                    // Fallback: endpoint general
+                    result.addAll(tbApi.getAlarms(100))
                 }
 
                 result.sortedByDescending { it.createdTime }
