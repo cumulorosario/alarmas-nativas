@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="red_primary">#FFDC2626</color>
+    <color name="zinc_bg">#FF09090B</color>
+    <color name="zinc_surface">#FF18181B</color>
+    <color name="emerald">#FF10B981</color>
+</resources>
