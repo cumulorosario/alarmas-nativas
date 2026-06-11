@@ -48,6 +48,7 @@ class VigiaViewModel(application: Application) : AndroidViewModel(application) {
     private val repository    = VigiaRepository(sessionStore)
     private val filterStore   = AlarmFilterStore(application)
 
+
     private val _loginState = MutableStateFlow(LoginState())
     val loginState: StateFlow<LoginState> = _loginState.asStateFlow()
 
@@ -168,6 +169,7 @@ class VigiaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun acknowledgeAlarm(alarmId: String) {
         viewModelScope.launch {
+            // Actualizar estado local inmediatamente para respuesta visual instantánea
             _dashboardState.update { state ->
                 state.copy(alarms = state.alarms.map { alarm ->
                     if (alarm.id.id == alarmId) alarm.copy(status = alarm.status.replace("UNACK", "ACK"))
@@ -176,6 +178,7 @@ class VigiaViewModel(application: Application) : AndroidViewModel(application) {
             }
             repository.acknowledgeAlarm(alarmId)
             cancelNotification(alarmId)
+            // Refrescar desde el servidor para confirmar el nuevo estado
             loadData(isRefresh = true)
         }
     }

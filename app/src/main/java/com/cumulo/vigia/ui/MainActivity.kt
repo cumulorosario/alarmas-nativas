@@ -53,6 +53,14 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { /* handled silently */ }
 
+    override fun onResume() {
+        super.onResume()
+        // Refrescar alarmas cada vez que la app vuelve a primer plano
+        if (viewModel.isAuthenticated.value) {
+            viewModel.loadData(isRefresh = true)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
@@ -92,13 +100,18 @@ fun VigiaApp(viewModel: VigiaViewModel) {
     val state by viewModel.dashboardState.collectAsState()
     val navController = rememberNavController()
 
-    // Auto refresh every 15s when authenticated
+    // Refrescar al autenticarse
     LaunchedEffect(isAuthenticated) {
         if (isAuthenticated) {
-            while (true) {
-                kotlinx.coroutines.delay(15_000)
-                viewModel.loadData(isRefresh = true)
-            }
+            viewModel.loadData(isRefresh = true)
+        }
+    }
+
+    // Refrescar al cambiar de panel
+    val navBackStackEntryForRefresh by navController.currentBackStackEntryAsState()
+    LaunchedEffect(navBackStackEntryForRefresh?.destination?.route) {
+        if (isAuthenticated) {
+            viewModel.loadData(isRefresh = true)
         }
     }
 
