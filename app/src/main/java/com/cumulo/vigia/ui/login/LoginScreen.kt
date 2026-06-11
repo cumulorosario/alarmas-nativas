@@ -4,8 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -42,36 +40,6 @@ fun LoginScreen(viewModel: VigiaViewModel) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     var passwordVisible by remember { mutableStateOf(false) }
-
-    val canUseBiometrics = remember {
-        val bm = BiometricManager.from(context)
-        bm.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL) == BiometricManager.BIOMETRIC_SUCCESS
-    }
-
-    val hasSavedCredentials = state.username.isNotEmpty() && state.rememberMe
-
-    fun launchBiometric() {
-        if (context !is FragmentActivity) return
-        val executor = ContextCompat.getMainExecutor(context)
-        val prompt = BiometricPrompt(context, executor,
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    viewModel.login()
-                }
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    // Silently fail - user can use password instead
-                }
-            })
-        val info = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Vigia Industrial")
-            .setSubtitle("Verificá tu identidad para continuar")
-            .setAllowedAuthenticators(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL
-            )
-            .build()
-        prompt.authenticate(info)
-    }
 
     Box(
         modifier = Modifier
@@ -261,19 +229,6 @@ fun LoginScreen(viewModel: VigiaViewModel) {
                     }
 
                     // Biometric button
-                    if (canUseBiometrics && hasSavedCredentials) {
-                        OutlinedButton(
-                            onClick = { launchBiometric() },
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            border = BorderStroke(1.dp, ZincBorder),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ZincText)
-                        ) {
-                            Icon(Icons.Default.Fingerprint, null, tint = RedLight, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("DESBLOQUEO BIOMÉTRICO", fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 12.sp)
-                        }
-                    }
                 }
             }
 
