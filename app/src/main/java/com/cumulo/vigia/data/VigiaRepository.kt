@@ -126,7 +126,14 @@ class VigiaRepository(private val sessionStore: SessionStore) {
         }
     }
 
-    suspend fun logout() = sessionStore.clearSession()
+    suspend fun logout() {
+        try {
+            tbApi.unregisterFcmTokenMe()
+        } catch (e: Exception) {
+            // Continuar con el logout incluso si esto falla
+        }
+        sessionStore.clearSession()
+    }
 
     suspend fun getAlarms(): Result<List<Alarm>> {
         return try {
@@ -136,21 +143,32 @@ class VigiaRepository(private val sessionStore: SessionStore) {
                 val tbApi = api(baseUrl, token)
                 val result = mutableListOf<Alarm>()
 
-                // ThingsBoard CE filtra automáticamente según el token:
-                // - TENANT_ADMIN → ve todas las alarmas del tenant
-                // - CUSTOMER_USER → ve solo las alarmas de su customer
-                // No necesitamos lógica adicional — el servidor hace el filtrado
-                result.addAll(tbApi.getAlarms(100))
+                // Estrategia 1: endpoint general — funciona para TENANT_ADMIN en CE
+                // Para CUSTOMER_USER puede devolver 403 (silencioso) → usamos fallback
+                try {
+                    result.addAll(tbApi.getAlarms(100))
+                } catch (e: Exception) {
+                    Log.w(TAG, "getAlarms falló: ${e.message}")
+                }
 
-                // Fallback por dispositivo si hay muy pocas alarmas
-                // (útil cuando el endpoint general no devuelve suficientes datos)
-                if (result.size < 3) {
-                    val devices = tbApi.getDevices(30)
-                    coroutineScope {
-                        devices.map { d -> async { tbApi.getAlarmsByDevice(d.id.id) } }
-                            .map { it.await() }
-                    }.flatten().forEach { a ->
-                        if (result.none { it.id.id == a.id.id }) result.add(a)
+                // Estrategia 2: por dispositivo — solo si la estrategia 1 no dio resultados
+                // Para TENANT_ADMIN el endpoint general ya devuelve todo
+                // Para CUSTOMER_USER el endpoint general da 403 → necesita el fallback
+                if (result.isEmpty()) {
+                    val NULL_CUSTOMER_ID = "13814000-1dd2-11b2-8080-808080808080"
+                    val hasCustomer = session.customerId.isNotEmpty() && session.customerId != NULL_CUSTOMER_ID
+                    val devices = try {
+                        if (hasCustomer) tbApi.getCustomerDevices(session.customerId)
+                        else tbApi.getDevices(30)
+                    } catch (e: Exception) { emptyList() }
+
+                    if (devices.isNotEmpty()) {
+                        coroutineScope {
+                            devices.map { d -> async { tbApi.getAlarmsByDevice(d.id.id) } }
+                                .map { it.await() }
+                        }.flatten().forEach { a ->
+                            if (result.none { it.id.id == a.id.id }) result.add(a)
+                        }
                     }
                 }
 
