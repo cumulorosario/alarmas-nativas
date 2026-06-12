@@ -80,7 +80,7 @@ class ThingsBoardApi(
      */
     suspend fun getAlarms(pageSize: Int = 100): List<Alarm> {
         return try {
-            val raw = get("/api/alarms?pageSize=$pageSize&page=0&statusList=ACTIVE_UNACK,ACTIVE_ACK,CLEARED_UNACK,CLEARED_ACK")
+            val raw = get("/api/alarms?pageSize=$pageSize&page=0&sortProperty=createdTime&sortOrder=DESC&statusList=ACTIVE_UNACK,ACTIVE_ACK,CLEARED_UNACK,CLEARED_ACK")
             parseAlarmList(raw)
         } catch (e: ApiException) {
             when (e.code) {
