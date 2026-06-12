@@ -128,7 +128,9 @@ class VigiaRepository(private val sessionStore: SessionStore) {
 
     suspend fun logout() {
         try {
-            tbApi.unregisterFcmTokenMe()
+            withAutoRefresh { token, baseUrl, _ ->
+                api(baseUrl, token).unregisterFcmTokenMe()
+            }
         } catch (e: Exception) {
             // Continuar con el logout incluso si esto falla
         }
