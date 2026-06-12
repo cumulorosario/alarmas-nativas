@@ -126,7 +126,14 @@ class VigiaRepository(private val sessionStore: SessionStore) {
         }
     }
 
-    suspend fun logout() = sessionStore.clearSession()
+    suspend fun logout() {
+        try {
+            tbApi.unregisterFcmTokenMe()
+        } catch (e: Exception) {
+            // Continuar con el logout incluso si esto falla
+        }
+        sessionStore.clearSession()
+    }
 
     suspend fun getAlarms(): Result<List<Alarm>> {
         return try {

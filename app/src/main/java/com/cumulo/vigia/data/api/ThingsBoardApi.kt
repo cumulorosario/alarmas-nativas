@@ -62,6 +62,20 @@ class ThingsBoardApi(
         responseBody
     }
 
+    private suspend fun delete(path: String): String = withContext(Dispatchers.IO) {
+        val request = buildRequest(path)
+            .delete()
+            .build()
+        val response = client.newCall(request).execute()
+        val responseBody = response.body?.string() ?: ""
+        if (!response.isSuccessful) {
+            val raw = try { JSONObject(responseBody).optString("message", "Error ${response.code}") }
+                      catch (e: Exception) { "Error ${response.code}" }
+            throw ApiException(ErrorTranslator.translate(raw), response.code)
+        }
+        responseBody
+    }
+
     suspend fun login(username: String, password: String): AuthResponse {
         val body = """{"username":"$username","password":"$password"}"""
         val raw = post("/api/auth/login", body)
@@ -242,6 +256,22 @@ class ThingsBoardApi(
         val userInfo = get("/api/auth/user")
         val userId = org.json.JSONObject(userInfo).getJSONObject("id").getString("id")
         post("/api/plugins/telemetry/USER/$userId/SERVER_SCOPE", body)
+    }
+
+    /**
+     * Elimina el atributo fcmToken del usuario actual.
+     * Se debe llamar al hacer logout para que este dispositivo deje de
+     * recibir notificaciones asociadas a esta cuenta (especialmente importante
+     * si luego se inicia sesión con otro usuario en el mismo teléfono).
+     */
+    suspend fun unregisterFcmTokenMe() {
+        try {
+            val userInfo = get("/api/auth/user")
+            val userId = org.json.JSONObject(userInfo).getJSONObject("id").getString("id")
+            delete("/api/plugins/telemetry/USER/$userId/SERVER_SCOPE/keys?keys=fcmToken,fcmTokenUpdated")
+        } catch (e: Exception) {
+            // No bloquear el logout si esto falla
+        }
     }
 }
 
