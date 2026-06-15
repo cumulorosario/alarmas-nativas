@@ -268,7 +268,7 @@ class ThingsBoardApi(
         try {
             val userInfo = get("/api/auth/user")
             val userId = org.json.JSONObject(userInfo).getJSONObject("id").getString("id")
-            delete("/api/plugins/telemetry/USER/$userId/SERVER_SCOPE/keys?keys=fcmToken,fcmTokenUpdated")
+            delete("/api/plugins/telemetry/USER/$userId/SERVER_SCOPE?keys=fcmToken,fcmTokenUpdated")
         } catch (e: Exception) {
             // No bloquear el logout si esto falla
         }
