@@ -28,8 +28,8 @@ class SessionStore(private val context: Context) {
         val KEY_VIBRATE       = booleanPreferencesKey("alarm_vibrate")
         val KEY_SOUND         = booleanPreferencesKey("alarm_sound")
         val KEY_WAKE          = booleanPreferencesKey("alarm_wake")
-
-        const val DEFAULT_BASE_URL = "http://cumuloingenieria.duckdns.org:9090"
+    
+        const val DEFAULT_BASE_URL = "https://monitoreo.cumuloingenieria.com.ar"
     }
 
     data class Session(
