@@ -7,9 +7,7 @@ import com.cumulo.vigia.model.Alarm
 import com.cumulo.vigia.model.AlarmId
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 /**
  * Servicio FCM — recibe push notifications de Firebase.
@@ -19,9 +17,9 @@ import kotlinx.coroutines.launch
  * Es el mecanismo más confiable disponible en Android.
  *
  * Flujo:
- * ThingsBoard Rule Chain → FCM API → Firebase → onMessageReceived()
+ * ThingsBoard Rule Chain → fcm_webhook → Firebase → onMessageReceived()
  *
- * Payload esperado (definido en la Rule Chain de ThingsBoard):
+ * Payload esperado:
  * {
  *   "alarmId":       "uuid",
  *   "alarmType":     "HIGH_TEMPERATURE",
@@ -30,6 +28,12 @@ import kotlinx.coroutines.launch
  *   "deviceName":    "Sensor-01",
  *   "createdTime":   "1234567890000"
  * }
+ *
+ * IMPORTANTE: onMessageReceived() y onNewToken() ya corren en un hilo
+ * secundario. Todo el trabajo se hace dentro de runBlocking para que
+ * el método no termine hasta que la notificación se muestre. Si se
+ * lanzara una corrutina "suelta" (CoroutineScope.launch), con la app
+ * cerrada Android podría matar el proceso antes de mostrar la alarma.
  */
 class VigiaFirebaseService : FirebaseMessagingService() {
 
@@ -72,9 +76,10 @@ class VigiaFirebaseService : FirebaseMessagingService() {
             return
         }
 
-        // Verificar filtros locales
-        CoroutineScope(Dispatchers.IO).launch {
+        // Se espera a que termine todo antes de devolver el control a Android
+        runBlocking {
             try {
+                // Verificar filtros locales
                 val filterStore = com.cumulo.vigia.data.local.AlarmFilterStore(applicationContext)
                 val filters = filterStore.getFilters()
                 val isMuted = filters.any { f ->
@@ -84,14 +89,14 @@ class VigiaFirebaseService : FirebaseMessagingService() {
 
                 if (isMuted) {
                     Log.d(TAG, "Alarma muteada por filtro — no notificando")
-                    return@launch
+                    return@runBlocking
                 }
 
                 // Verificar si ya fue notificada recientemente
                 val notifiedIds = AlarmPollingReceiver.getNotifiedIds(applicationContext)
                 if (alarm.id.id in notifiedIds) {
                     Log.d(TAG, "Alarma ya notificada — ignorando duplicado")
-                    return@launch
+                    return@runBlocking
                 }
 
                 Log.i(TAG, "FCM ALERTA: $alarmId $severity $deviceName")
@@ -120,13 +125,15 @@ class VigiaFirebaseService : FirebaseMessagingService() {
      */
     override fun onNewToken(token: String) {
         Log.i(TAG, "FCM token renovado — registrando en ThingsBoard")
-        CoroutineScope(Dispatchers.IO).launch {
+        // Se guarda primero como pendiente: si el proceso muere a mitad
+        // del registro, la app lo reintenta en el próximo login/inicio.
+        savePendingToken(token)
+        runBlocking {
             try {
                 registerTokenWithThingsBoard(token)
             } catch (e: Exception) {
                 Log.e(TAG, "Error registrando nuevo token: ${e.message}")
-                // Guardar para reintentar en el próximo inicio
-                savePendingToken(token)
+                // Queda guardado como pendiente para reintentar en el próximo inicio
             }
         }
     }
@@ -135,8 +142,7 @@ class VigiaFirebaseService : FirebaseMessagingService() {
         val sessionStore = SessionStore(applicationContext)
         val session = sessionStore.getSession()
         if (!session.isLoggedIn) {
-            Log.w(TAG, "Sin sesión — guardando token pendiente")
-            savePendingToken(token)
+            Log.w(TAG, "Sin sesión — token queda pendiente")
             return
         }
         val repository = VigiaRepository(sessionStore)
